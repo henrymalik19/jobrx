@@ -24,20 +24,33 @@ const CHECK = /security (check|verification)|verify (it'?s you|you'?re (a )?huma
 const CLOSED = /no longer accepting applications|applied \d+ \w+ ago|application submitted/i;
 
 // Runs in the page (inside SCAN and FIND): a choice's own text, and the question a radio or checkbox answers.
-// LinkedIn groups choices in a radiogroup or fieldset, or (newer forms) only by a shared name, each choice
-// carrying its own text in aria-label: then the question is the first line of the box holding every choice
-// that isn't a choice's own text.
+// LinkedIn groups choices in a radiogroup or fieldset, or (newer forms) only by a shared name. A choice's text
+// is its label, else the text beside it; an aria-label every choice in the group shares is the question, not
+// the choice (LinkedIn's current forms: each radio's aria-label is the question, its <label> empty, its text
+// in a <p> beside it). The question is the group's legend or labelling element, else the first line around
+// the group that isn't a choice's text (the question sits just outside the radiogroup).
 const CHOICE_HELPERS = `
   const clean = (t) => (t || "").replace(/\\s+/g, " ").replace(/[*✱]\\s*$/, "").trim();
-  const optionOf = (e) => {
+  const peersOf = (e, d) => (e.name ? [...d.querySelectorAll('input[name="' + CSS.escape(e.name) + '"]')] : [e]);
+  const sharedAria = (e, d) => {
+    const a = clean(e.getAttribute("aria-label"));
+    const peers = peersOf(e, d);
+    return a && peers.length > 1 && peers.every((p) => clean(p.getAttribute("aria-label")) === a) ? a : "";
+  };
+  const optionOf = (e, d) => {
     const l = e.id && document.querySelector('label[for="' + CSS.escape(e.id) + '"]');
     if (l && clean(l.textContent)) return clean(l.textContent);
-    if (clean(e.getAttribute("aria-label"))) return clean(e.getAttribute("aria-label"));
+    const own = clean(e.getAttribute("aria-label"));
+    if (own && own !== sharedAria(e, d)) return own;
+    const peers = peersOf(e, d);
     let c = e;
-    for (let i = 0; i < 4 && c.parentElement; i++) { c = c.parentElement; if (clean(c.innerText)) return clean(c.innerText); }
-    return e.value;
+    for (let i = 0; i < 5 && c.parentElement && c.parentElement !== d; i++) {
+      c = c.parentElement;
+      if (peers.some((p) => p !== e && c.contains(p))) break;
+      if (clean(c.innerText)) return clean(c.innerText);
+    }
+    return own || e.value;
   };
-  const peersOf = (e, d) => (e.name ? [...d.querySelectorAll('input[name="' + CSS.escape(e.name) + '"]')] : [e]);
   const groupBox = (e, d) => {
     const g = e.closest('[role="radiogroup"], fieldset');
     if (g) return g;
@@ -50,6 +63,7 @@ const CHOICE_HELPERS = `
   // The question as written (with its "*" when required), or "" when there's none to find.
   const questionOf = (e, d) => {
     const g = groupBox(e, d);
+    const shared = sharedAria(e, d);
     if (!g) {
       const l = e.id && document.querySelector('label[for="' + CSS.escape(e.id) + '"]');
       return ((l && l.textContent) || e.getAttribute("aria-label") || "").replace(/\\s+/g, " ").trim();
@@ -57,9 +71,19 @@ const CHOICE_HELPERS = `
     const by = g.getAttribute("aria-labelledby");
     const named = by ? document.getElementById(by) : g.querySelector("legend");
     if (named && clean(named.textContent)) return named.textContent.replace(/\\s+/g, " ").trim();
-    const choices = new Set(peersOf(e, d).map(optionOf));
-    const line = (g.innerText || "").split("\\n").map((t) => t.replace(/\\s+/g, " ").trim()).find((t) => clean(t) && !choices.has(clean(t)));
-    if (line) return line;
+    const peers = peersOf(e, d);
+    const choices = new Set(peers.map((p) => optionOf(p, d)));
+    const lineOf = (box) => (box.innerText || "").split("\\n").map((t) => t.replace(/\\s+/g, " ").trim()).find((t) => clean(t) && !choices.has(clean(t)));
+    // The group, then the boxes around it that hold no other question's choices.
+    let box = g;
+    for (let i = 0; i < 4; i++) {
+      const line = lineOf(box);
+      if (line && (!shared || clean(line) === shared)) return line;
+      const up = box.parentElement;
+      if (!up || up === d || [...up.querySelectorAll("input[type=radio], input[type=checkbox]")].some((p) => !peers.includes(p))) break;
+      box = up;
+    }
+    if (shared) return shared;
     const before = g.previousElementSibling;
     return ((before && before.textContent) || "").replace(/\\s+/g, " ").trim();
   };
@@ -71,7 +95,7 @@ const FIND = (label: string) => `(() => {
   if (!d) return null;
   ${CHOICE_HELPERS}
   for (const e of d.querySelectorAll("input[type=radio], input[type=checkbox]")) {
-    if (clean(questionOf(e, d)).toLowerCase() === ${JSON.stringify(label)}) return { name: e.name || null, id: e.id || null, type: e.type };
+    if (clean(questionOf(e, d)).toLowerCase() === ${JSON.stringify(label)}) return { name: e.name || null, id: e.id || null, type: e.type, options: peersOf(e, d).map((p) => optionOf(p, d)) };
   }
   return null;
 })()`;
@@ -106,8 +130,8 @@ const SCAN = `(() => {
       g.value = e.value && picked && !/^select an option$/i.test(picked.textContent.trim()) ? [clean(picked.textContent)] : [];
     } else if (type === "radio" || type === "checkbox") {
       g.kind = type === "radio" ? "select" : "multiselect";
-      g.options.push(optionOf(e));
-      if (e.checked) g.value.push(optionOf(e));
+      g.options.push(optionOf(e, d));
+      if (e.checked) g.value.push(optionOf(e, d));
     } else {
       g.kind = e.tagName === "TEXTAREA" ? "textarea" : e.getAttribute("role") === "combobox" ? "combobox" : "text";
       g.value = e.value.trim() ? [e.value.trim()] : [];
@@ -133,12 +157,13 @@ export function linkedinDriver(page: Page, pace: Pace = HUMAN): FormDriver {
   const button = (name: RegExp) => dialog.getByRole("button", { name });
 
   /** The visible field (or radio group) whose question is `label`. */
-  async function field(key: string): Promise<{ kind: "radio" | "checkbox" | "select" | "text"; inputs: Locator } | null> {
+  async function field(key: string): Promise<{ kind: "radio" | "checkbox" | "select" | "text"; inputs: Locator; options?: string[] } | null> {
     const label = key.replace(/^q:/, "");
-    const choice = (await page.evaluate(FIND(label)).catch(() => null)) as { name: string | null; id: string | null; type: string } | null;
+    const choice = (await page.evaluate(FIND(label)).catch(() => null)) as { name: string | null; id: string | null; type: string; options: string[] } | null;
     if (choice) {
       const inputs = choice.name ? dialog.locator(`input[name=${JSON.stringify(choice.name)}]`) : dialog.locator(`[id=${JSON.stringify(choice.id ?? "")}]`);
-      return { kind: choice.type === "checkbox" ? "checkbox" : "radio", inputs };
+      // Each choice's text, in the order the inputs are found (read in the page, as the scan reads them).
+      return { kind: choice.type === "checkbox" ? "checkbox" : "radio", inputs, options: choice.options };
     }
     const labels = dialog.locator("label");
     for (let i = 0; i < (await labels.count()); i++) {
@@ -153,21 +178,6 @@ export function linkedinDriver(page: Page, pace: Pace = HUMAN): FormDriver {
     return null;
   }
 
-  /** The label shown beside a radio or checkbox. */
-  async function optionText(input: Locator): Promise<string> {
-    return input.evaluate((e) => {
-      const l = e.id ? document.querySelector(`label[for="${CSS.escape(e.id)}"]`) : null;
-      if (l?.textContent?.trim()) return l.textContent.trim();
-      const own = e.getAttribute("aria-label")?.replace(/\s+/g, " ").trim();
-      if (own) return own;
-      let c: HTMLElement | null = e as HTMLElement;
-      for (let i = 0; i < 4 && c?.parentElement; i++) {
-        c = c.parentElement;
-        if (c.innerText.trim()) return c.innerText.trim();
-      }
-      return (e as HTMLInputElement).value;
-    });
-  }
 
   /** Uploads the tailored resume on a page that asks for one, and picks it. */
   async function attachResume(resumePath: string): Promise<boolean> {
@@ -203,7 +213,7 @@ export function linkedinDriver(page: Page, pace: Pace = HUMAN): FormDriver {
       const wanted = step.kind === "select" ? step.value : step.kind === "check" ? null : [step.value];
       for (let i = 0; i < (await found.inputs.count()); i++) {
         const input = found.inputs.nth(i);
-        const text = await optionText(input);
+        const text = found.options?.[i] ?? "";
         if (wanted && !wanted.some((w) => norm(w) === norm(text))) continue;
         await tick(input);
         if (found.kind === "radio") return input.isChecked();
@@ -224,11 +234,19 @@ export function linkedinDriver(page: Page, pace: Pace = HUMAN): FormDriver {
   }
 
   /**
-   * Ticks a radio or checkbox. One the dialog has scrolled out of reach is clicked in the page, as a person's
-   * click on its label would; one already ticked is left (clicking a checkbox again would untick it).
+   * Ticks a radio or checkbox, as a person would: a click on its label (LinkedIn hides the input itself and draws
+   * the circle with its label; a click from code alone doesn't reach the form's own state). Without a label that
+   * takes the click, the input is ticked directly. One already ticked is left (clicking a checkbox again would
+   * untick it).
    */
   async function tick(input: Locator): Promise<void> {
     if (await input.isChecked().catch(() => false)) return;
+    const id = await input.getAttribute("id").catch(() => null);
+    const label = id ? dialog.locator(`label[for=${JSON.stringify(id)}]`).first() : null;
+    if (label && (await label.count()) > 0) {
+      await label.scrollIntoViewIfNeeded({ timeout: 3000 }).catch(() => undefined);
+      if ((await label.click({ timeout: 3000 }).then(() => true, () => false)) && (await input.isChecked().catch(() => false))) return;
+    }
     await input.scrollIntoViewIfNeeded().catch(() => undefined);
     await input.check({ force: true, timeout: 5000 }).catch(() => input.evaluate((e) => (e as HTMLInputElement).click()));
   }
@@ -253,8 +271,9 @@ export function linkedinDriver(page: Page, pace: Pace = HUMAN): FormDriver {
     pageQuestions: questions,
 
     async discard() {
-      // Closing the dialog asks whether to save the application: Discard keeps nothing.
-      const close = page.locator('[role="dialog"] button[aria-label="Dismiss"], [role="dialog"] button[aria-label*="close" i]').first();
+      // Closing the dialog asks whether to save the application: Discard keeps nothing. LinkedIn's form is a
+      // <dialog> element (older ones: role="dialog").
+      const close = page.locator(":is(dialog, [role=\"dialog\"]) button:is([aria-label=\"Dismiss\"], [aria-label*=\"close\" i])").first();
       if ((await close.count()) > 0) await close.click().catch(() => undefined);
       const discard = page.getByRole("button", { name: /^discard$/i }).first();
       if (await discard.waitFor({ timeout: 5000 }).then(() => true, () => false)) await discard.click();
@@ -295,7 +314,7 @@ export function linkedinDriver(page: Page, pace: Pace = HUMAN): FormDriver {
           const picked: string[] = [];
           for (let i = 0; i < (await found.inputs.count()); i++) {
             const input = found.inputs.nth(i);
-            if (await input.isChecked()) picked.push(await optionText(input));
+            if (await input.isChecked()) picked.push(found.options?.[i] ?? "");
           }
           out[s.fieldName] = picked.join(", ");
         } else if (found.kind === "select") {

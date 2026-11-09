@@ -41,15 +41,15 @@ describe.skipIf(!browser)("linkedinDriver", () => {
     expect(open.map((f) => [f.key, f.kind, f.options])).toEqual([
       ["q:are you legally authorized to work in the united states?", "select", ["Yes", "No"]],
       ["q:how many years of work experience do you have with typescript?", "text", []],
-      // Choices grouped only by their name, each labelled itself (newer forms): one question, its text from the box.
-      ["q:which best describes your backend experience?", "select", ["Proven experience designing, developing, and maintaining backend software in production environments;", "Some experience"]],
+      // LinkedIn's current choices (aria-label the question, text beside each): one question, Yes and No.
+      ["q:proven experience designing, developing, and maintaining backend software in production environments;", "select", ["Yes", "No"]],
     ]);
     // Without answers it won't move on.
     expect(await driver.nextPage!(resume)).toBe("stuck");
     expect(await driver.fill({ kind: "select", fieldName: open[0].key, label: open[0].label, required: true, value: ["Yes"] }, resume)).toBe(true);
     expect(await driver.fill({ kind: "text", fieldName: open[1].key, label: open[1].label, required: true, value: "8" }, resume)).toBe(true);
-    expect(await driver.fill({ kind: "select", fieldName: open[2].key, label: open[2].label, required: true, value: ["Some experience"] }, resume)).toBe(true);
-    expect(await driver.values([{ kind: "select", fieldName: open[2].key, label: "", required: true, value: [] }])).toEqual({ [open[2].key]: "Some experience" });
+    expect(await driver.fill({ kind: "select", fieldName: open[2].key, label: open[2].label, required: true, value: ["No"] }, resume)).toBe(true);
+    expect(await driver.values([{ kind: "select", fieldName: open[2].key, label: "", required: true, value: [] }])).toEqual({ [open[2].key]: "No" });
     // A field that isn't on the page: couldn't fill, not an error.
     expect(await driver.fill({ kind: "select", fieldName: "q:no such question", label: "", required: true, value: ["Yes"] }, resume)).toBe(false);
     expect(await driver.values([{ kind: "select", fieldName: open[0].key, label: "", required: true, value: ["Yes"] }])).toEqual({ [open[0].key]: "Yes" });
@@ -75,8 +75,11 @@ describe.skipIf(!browser)("linkedinDriver", () => {
       ["q:are you legally authorized to work in the united states?", []],
       ["q:how many years of work experience do you have with typescript?", []],
       ["q:how many years of work experience do you have with python?", ["3"]],
-      ["q:which best describes your backend experience?", []],
+      ["q:proven experience designing, developing, and maintaining backend software in production environments;", []],
+      // Its question is the first line around the group; LinkedIn had already picked one.
+      ["q:gender", ["I don't wish to answer"]],
     ]);
+    expect(shown.at(-1)).toMatchObject({ options: ["Male", "Female", "I don't wish to answer"], required: false });
     expect(await driver.discard!()).toBe(true);
     expect(await page.locator('[data-testid="dialog-content"]').count()).toBe(0);
     expect(await driver.confirmation()).toBeNull();

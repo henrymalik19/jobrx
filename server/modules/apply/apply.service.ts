@@ -554,13 +554,17 @@ async function walkPages(deps: ApplyDeps, app: ApplyJob, steps: FillStep[], resu
  * going through, to check) asked in the app. Handed back when it can't be closed, or there's no app to ask in.
  */
 async function askInApp(deps: ApplyDeps, app: ApplyJob, walk: Awaited<ReturnType<typeof walkPages>>): Promise<ApplyOutcome> {
-  const labels = walk.ask.map((q) => `"${q.label}"`).join(", ");
+  // A page read twice (it didn't move on) lists its questions twice: each question once, as last seen.
+  const once = <T extends { key: string }>(qs: T[]) => [...new Map(qs.map((q) => [q.key, q])).values()];
+  const ask = once(walk.ask);
+  const answered = once(walk.answered).filter((q) => !ask.some((a) => a.key === q.key));
+  const labels = ask.map((q) => `"${q.label}"`).join(", ");
   const closed = await deps.driver.discard!().catch(() => false);
   if (!closed) return handBack(deps, app, `The form has placeholder answers in it for questions it couldn't answer (${labels}). Close it with Discard in the Chrome window; don't submit it.`);
   if (!deps.askInApp) return handBack(deps, app, `The form asks questions it couldn't answer: ${labels}. It was discarded, nothing was sent.`);
-  const status = await deps.askInApp(app.id, [...walk.ask, ...walk.answered]);
-  const conflicts = walk.ask.filter((q) => q.conflict).length;
-  const open = walk.ask.length - conflicts;
+  const status = await deps.askInApp(app.id, [...ask, ...answered]);
+  const conflicts = ask.filter((q) => q.conflict).length;
+  const open = ask.length - conflicts;
   const what = [open ? `${open} ${open === 1 ? "question" : "questions"} to answer` : "", conflicts ? `${conflicts} where LinkedIn had something else filled in` : ""].filter(Boolean).join(" and ");
   await setApplyStep(deps.db, app.id, null, `Went through the form and discarded it unsent: ${what}. Answer in the app, approve it again, and the runner fills it.`);
   await notify(deps.db, deps.userId, {
@@ -568,7 +572,7 @@ async function askInApp(deps: ApplyDeps, app: ApplyJob, walk: Awaited<ReturnType
     href: applicationHref(app.id), applicationId: app.id,
   });
   deps.log(`${app.id}: discarded unsent; ${what}, asked in the app (now ${status})`);
-  return { result: "needs_answers", questions: walk.ask.length };
+  return { result: "needs_answers", questions: ask.length };
 }
 
 async function run(deps: ApplyDeps, app: ApplyJob): Promise<ApplyOutcome> {

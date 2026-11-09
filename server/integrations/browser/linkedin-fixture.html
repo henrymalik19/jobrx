@@ -31,10 +31,23 @@
        <input id="years" type="text" required>
        <label for="py">How many years of work experience do you have with Python?*</label>
        <input id="py" type="text" required value="3">
+       <!-- LinkedIn's current choices: each radio hidden, its aria-label the question, its label empty, its text in a
+            <p> beside it; the question just outside the radiogroup. -->
        <div>
-         <span>Which best describes your backend experience?*</span>
-         <div><input type="radio" name="radio-group-_r_30_" id="_r_32_" aria-label="Proven experience designing, developing, and maintaining backend software in production environments;"><span>Proven experience designing, developing, and maintaining backend software in production environments;</span></div>
-         <div><input type="radio" name="radio-group-_r_30_" id="_r_33_" aria-label="Some experience"><span>Some experience</span></div>
+         <span>Proven experience designing, developing, and maintaining backend software in production environments;*</span>
+         <fieldset role="radiogroup" aria-describedby="error-message-_r_30_">
+           <div><div><input type="radio" name="radio-group-_r_30_" id="_r_32_" aria-label="Proven experience designing, developing, and maintaining backend software in production environments;" style="opacity:0;width:0;height:0;margin:0"><label for="_r_32_" style="display:inline-block;width:24px;height:20px;border:1px solid"></label></div><div><p>Yes</p></div></div>
+           <div><div><input type="radio" name="radio-group-_r_30_" id="_r_34_" aria-label="Proven experience designing, developing, and maintaining backend software in production environments;" style="opacity:0;width:0;height:0;margin:0"><label for="_r_34_" style="display:inline-block;width:24px;height:20px;border:1px solid"></label></div><div><p>No</p></div></div>
+         </fieldset>
+       </div>
+       <div>
+         <p>Gender</p>
+         <p>We are an equal opportunity employer.</p>
+         <fieldset role="radiogroup">
+           <div><div><input type="radio" name="radio-group-_r_2p_" id="_r_2r_" aria-label="Gender" style="opacity:0;width:0;height:0;margin:0"><label for="_r_2r_" style="display:inline-block;width:24px;height:20px;border:1px solid"></label></div><div><p>Male</p></div></div>
+           <div><div><input type="radio" name="radio-group-_r_2p_" id="_r_2t_" aria-label="Gender" style="opacity:0;width:0;height:0;margin:0"><label for="_r_2t_" style="display:inline-block;width:24px;height:20px;border:1px solid"></label></div><div><p>Female</p></div></div>
+           <div><div><input type="radio" name="radio-group-_r_2p_" id="_r_2v_" aria-label="Gender" style="opacity:0;width:0;height:0;margin:0" checked><label for="_r_2v_" style="display:inline-block;width:24px;height:20px;border:1px solid"></label></div><div><p>I don't wish to answer</p></div></div>
+         </fieldset>
        </div>
        <div id="errors"></div>`,
     ];
@@ -46,8 +59,8 @@
           <button type="button" onclick="sent()">Submit application</button></div></div>`;
         return;
       }
-      host.innerHTML = `<div role="dialog"><button type="button" aria-label="Dismiss" onclick="ask()">x</button><div data-testid="dialog-content">${pages[at]}
-        <button type="button" onclick="next()">${at === pages.length - 1 ? "Review" : "Next"}</button></div></div>`;
+      host.innerHTML = `<dialog open><button type="button" aria-label="Dismiss" onclick="ask()">x</button><div data-testid="dialog-content">${pages[at]}
+        <button type="button" onclick="next()">${at === pages.length - 1 ? "Review" : "Next"}</button></div></dialog>`;
     }
     function openForm() { at = 0; render(); }
     // Closing asks whether to save the application; Discard keeps nothing.
