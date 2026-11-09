@@ -15,6 +15,7 @@ import { LiveRefresh } from "../../_components/live-refresh";
 import { SiteBadge } from "../../_components/site-badge";
 import { TONE_BADGE } from "../../_components/status";
 import { LinkEmail, type LinkTarget } from "./link-email";
+import { QuickDecide } from "./quick-decide";
 import { TableSkeleton } from "../../_components/skeletons";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
@@ -251,6 +252,7 @@ async function Todo({ searchParams }: { searchParams: SearchParams }) {
                   <TableHead>{current.id === "ready" ? "To look at" : "What it needs"}</TableHead>
                   <TableHead>Salary</TableHead>
                   <TableHead>Prepared</TableHead>
+                  <TableHead><span className="sr-only">Approve or skip</span></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -269,6 +271,10 @@ async function Todo({ searchParams }: { searchParams: SearchParams }) {
                     <TableCell className={cn("max-w-md whitespace-normal align-top text-sm", cardsOnPhone.full)}><Needs tab={current.id} app={a} /></TableCell>
                     <TableCell className={cn("align-top tabular-nums", cardsOnPhone.meta)} data-label="Salary">{formatSalary(a.job.salary_min, a.job.salary_max, a.job.salary_currency) || "—"}</TableCell>
                     <TableCell className={cn("align-top text-muted-foreground", cardsOnPhone.meta)} data-label="Prepared">{a.prepared_at ? ago(a.prepared_at, now) : "—"}</TableCell>
+                    <TableCell className="text-right align-top max-md:order-last max-md:w-full">
+                      {/* Same rule as Approve on its page: a manual one the runner wrote a note on is yours to apply. */}
+                      <QuickDecide applicationId={a.id} canApprove={a.status === "queued" || (a.status === "manual" && a.apply_note == null)} />
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
