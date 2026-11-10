@@ -1,9 +1,10 @@
 // Email tracking (track_email): reads the job inbox, sorts each new email, finds
 // the application it's about and moves it: a confirmation to Confirmed (kept as
 // evidence), a rejection to Rejected, an interview invite to Interviewing, a
-// recruiter's reply to Heard back. A matched rejection is moved out of the inbox
-// into its own folder, never deleted. Emails it can't match wait on To do for you
-// to link. Each run is a worker_runs row (worker "track_email").
+// recruiter's reply to Heard back. Each email it understands is moved out of the inbox
+// into a Jobrx folder by kind (never deleted), matched or not; security codes and what
+// it can't sort stay. Emails it can't match wait on To do for you to link. Each run is
+// a worker_runs row (worker "track_email").
 import { z } from "zod";
 import type { Db, Json } from "@/server/db/types";
 import { check, unwrap, ValidationError } from "@/server/core/errors";
@@ -45,14 +46,29 @@ const TELL: Partial<Record<EmailKind, { kind: NotificationKind; title: (app: Tra
 const CONFIRM_KINDS = new Set<EmailKind>(["rejection", "interview"]);
 /** Kinds of email marked read once tied to an application: they need nothing from you. */
 const READ_KINDS = new Set<EmailKind>(["confirmation", "rejection"]);
-/** Where a matched rejection is filed (never deleted). */
+/** Where a rejection is filed (never deleted). */
 export const REJECTIONS_FOLDER = "Jobrx/Rejected";
-/** Where a matched application receipt is filed (never deleted). */
+/** Where an application receipt is filed (never deleted). */
 export const RECEIVED_FOLDER = "Jobrx/Received";
+/** Where an interview invite or a recruiter's reply is filed (left unread: they need you). */
+export const INTERVIEWS_FOLDER = "Jobrx/Interviews";
+/** Where job-board alerts are filed. */
+export const ALERTS_FOLDER = "Jobrx/Job alerts";
 /** Where rejections were filed before; its mail is moved into {@link REJECTIONS_FOLDER} once. */
 const OLD_REJECTIONS_FOLDER = "Rejections (Autopilot)";
-/** The folder each kind of matched email is filed in, out of the inbox; the rest stay there. */
-const FILE_IN: Partial<Record<EmailKind, string>> = { confirmation: RECEIVED_FOLDER, rejection: REJECTIONS_FOLDER };
+/**
+ * The folder each kind of email is filed in, out of the inbox, whether or not it's tied to an application (one
+ * that isn't still waits on To do). Security codes and what can't be sorted stay in the inbox.
+ */
+const FILE_IN: Partial<Record<EmailKind, string>> = {
+  confirmation: RECEIVED_FOLDER,
+  rejection: REJECTIONS_FOLDER,
+  interview: INTERVIEWS_FOLDER,
+  recruiter: INTERVIEWS_FOLDER,
+  job_alert: ALERTS_FOLDER,
+};
+/** Whether an email is marked read as it's filed: a job alert, or a receipt or a no tied to its application. */
+const readOnFiling = (kind: EmailKind, matched: boolean) => kind === "job_alert" || (matched && READ_KINDS.has(kind));
 
 /** The kinds that move an application, and where to. */
 export const MOVES: Partial<Record<EmailKind, AppStatus>> = {
@@ -258,11 +274,12 @@ export async function runTrackEmail(deps: TrackDeps): Promise<{ counts: TrackCou
     const byId = new Map(tracked.map((a) => [a.id, a]));
 
     /**
-     * Marks a receipt or a rejection read and files it out of the inbox, so what's left there is what needs
-     * you (an interview, a recruiter, one it couldn't place stay unread). Returns whether it was filed.
+     * Files an email out of the inbox into its kind's folder, marking it read when it needs nothing from you
+     * (a job alert, a receipt or a no tied to its application); an interview, a recruiter's reply and one it
+     * couldn't place stay unread so they stand out. Returns whether it was filed.
      */
-    const fileMail = async (messageId: string, kind: EmailKind, company: string): Promise<boolean> => {
-      if (READ_KINDS.has(kind)) {
+    const fileMail = async (messageId: string, kind: EmailKind, company: string, matched = true): Promise<boolean> => {
+      if (readOnFiling(kind, matched)) {
         try {
           if (await markMailRead(config, messageId)) counts.marked_read = (counts.marked_read ?? 0) + 1;
         } catch (err) {
@@ -348,8 +365,15 @@ export async function runTrackEmail(deps: TrackDeps): Promise<{ counts: TrackCou
         .single();
       if (error) throw new Error(`record email: ${error.message}`);
       counts.new++;
-      if (!relevant) continue;
+      const filed = () => db.from("emails").update({ archived_at: now().toISOString() }).eq("id", row.id);
+      if (!relevant) {
+        // A job alert to its folder; a code or what couldn't be sorted stays.
+        if (FILE_IN[kind] && (await fileMail(mail.messageId, kind, mail.fromAddress, false))) await filed();
+        continue;
+      }
       if (!confident) {
+        // Filed like any other of its kind, left unread: it's on To do to link.
+        if (await fileMail(mail.messageId, kind, match.app?.company ?? mail.fromAddress, false)) await filed();
         counts.unmatched++;
         await notify(db, userId, {
           kind: "email_to_sort",
@@ -379,7 +403,7 @@ export async function runTrackEmail(deps: TrackDeps): Promise<{ counts: TrackCou
       }
       // A receipt or a no, tied to its application, needs nothing from you: read. Anything that might
       // (an interview, a recruiter, one it couldn't place) stays unread so it stands out.
-      if (await fileMail(mail.messageId, kind, app.company)) await db.from("emails").update({ archived_at: now().toISOString() }).eq("id", row.id);
+      if (await fileMail(mail.messageId, kind, app.company)) await filed();
     }
     counts.cost_usd = Math.round(counts.cost_usd * 10000) / 10000;
     await finishRun(db, runId, { ok: true, counts });
@@ -419,14 +443,15 @@ export async function listUnmatchedEmails(db: Db, userId: string, now = new Date
 
 const DISMISSED = "not about an application (you said)";
 
-/** How far back left-over receipts and rejections are filed, and how many a run files. */
+/** How far back left-over mail is filed, and how many a run files. */
 const LEFTOVER_DAYS = 30;
 const LEFTOVER_PER_RUN = 25;
 
 /**
- * Files receipts and rejections tied to an application that are still in the inbox: ones you linked in the
- * app (which can't reach the inbox), and ones sorted before the folders existed. One no longer in the inbox
- * (you moved or deleted it) is marked done too, so it isn't looked for again.
+ * Files sorted emails still in the inbox into their kind's folder: ones you linked in the app (which can't
+ * reach the inbox), and ones sorted before their folder existed (job alerts, interviews, unmatched ones). One
+ * no longer in the inbox (you moved or deleted it) is marked done too, so it isn't looked for again; so is one
+ * you dismissed, which stays where it is.
  *
  * @returns How many were moved into a folder.
  */
@@ -441,9 +466,8 @@ async function fileLeftover(
   const rows = unwrap(
     await db
       .from("emails")
-      .select("id, message_id, classification")
+      .select("id, message_id, classification, application_id, reason")
       .eq("user_id", userId)
-      .not("application_id", "is", null)
       .is("archived_at", null)
       .in("classification", Object.keys(FILE_IN))
       .gte("received_at", new Date(now.getTime() - LEFTOVER_DAYS * 86_400_000).toISOString())
@@ -453,10 +477,12 @@ async function fileLeftover(
   );
   let filed = 0;
   for (const r of rows) {
-    const folder = FILE_IN[r.classification as EmailKind]!;
-    // A failure to reach the inbox throws, and is tried again next run.
-    await markMailRead(config, r.message_id).catch(() => false);
-    if (await moveMail(config, r.message_id, folder)) filed++;
+    const kind = r.classification as EmailKind;
+    if (r.reason !== DISMISSED) {
+      // A failure to reach the inbox throws, and is tried again next run.
+      if (readOnFiling(kind, !!r.application_id)) await markMailRead(config, r.message_id).catch(() => false);
+      if (await moveMail(config, r.message_id, FILE_IN[kind]!)) filed++;
+    }
     check(await db.from("emails").update({ archived_at: now.toISOString() }).eq("id", r.id), "file left-over email");
   }
   return filed;
@@ -634,9 +660,16 @@ async function reconsiderRecent(
       if (kind === r.classification || !(r.reason ?? "").startsWith("rules")) continue;
       app = linkedApps.get(r.application_id);
     } else {
-      if (r.classification !== "other" && !(r.classification && r.classification in MOVES)) continue;
+      // A LinkedIn receipt was once taken for a job alert.
+      if (r.classification !== "other" && r.classification !== "job_alert" && !(r.classification && r.classification in MOVES)) continue;
       const match = matchEmail(mail, tracked);
-      if (!match.app || match.confidence < MATCH_THRESHOLD) continue;
+      if (!match.app || match.confidence < MATCH_THRESHOLD) {
+        // No application for it: only what it says is corrected (it's filed by that, and waits on To do).
+        if (kind !== r.classification && (r.reason ?? "").startsWith("rules")) {
+          check(await db.from("emails").update({ classification: kind, reason: `rules (rechecked; was ${r.classification ?? "unsorted"})` }).eq("id", r.id), "correct email");
+        }
+        continue;
+      }
       app = match.app;
     }
     if (!app) continue;

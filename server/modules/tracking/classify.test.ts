@@ -21,6 +21,16 @@ describe("classifyByRules", () => {
     expect(classifyByRules(mail("Schedule your interview", "Can we set up a call this week?", "recruiting@netflix.com"))).toBe("interview");
   });
 
+  it("reads LinkedIn's mail about an Easy Apply application as a receipt or a no, not a job alert", () => {
+    const li = "jobs-noreply@linkedin.com";
+    expect(classifyByRules(mail("Your application to Senior Software Engineer at twentyAI", "Your application was sent to twentyAI. Senior Software Engineer · twentyAI · United States (Remote)", li))).toBe("confirmation");
+    expect(classifyByRules(mail("Malik, your application was sent to Canary Technologies", "Lead Engineer · Canary Technologies", li))).toBe("confirmation");
+    expect(classifyByRules(mail("Your application to Lead Engineer at Canary Technologies", "Thank you for your interest. Unfortunately, we will not be moving forward with your application.", li))).toBe("rejection");
+    // LinkedIn's other mail is still an alert.
+    expect(classifyByRules(mail("Your application was viewed by Acme", "Acme viewed your application.", li))).toBe("job_alert");
+    expect(classifyByRules(mail("Senior Engineer at Acme and 9 more jobs", "Jobs you may be interested in", "jobalerts-noreply@linkedin.com"))).toBe("job_alert");
+  });
+
   it("reads a receipt that says what happens if you're not selected as a receipt, not a rejection", () => {
     // Rula's (via Ashby) receipt, which the rules once took for a rejection.
     const rula = mail(

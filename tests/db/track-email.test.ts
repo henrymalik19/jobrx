@@ -11,7 +11,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { Db } from "@/server/db/types";
 import type { StructuredCall } from "@/server/integrations/anthropic/claude";
 import type { InboxMail } from "@/server/integrations/email/inbox";
-import { forgetOldEmails, linkEmail, listApplicationEmails, listUnsortedEmails, RECEIVED_FOLDER, REJECTIONS_FOLDER, runTrackEmail } from "@/server/modules/tracking/tracking.service";
+import { ALERTS_FOLDER, forgetOldEmails, INTERVIEWS_FOLDER, linkEmail, listApplicationEmails, listUnsortedEmails, RECEIVED_FOLDER, REJECTIONS_FOLDER, runTrackEmail } from "@/server/modules/tracking/tracking.service";
 import type {} from "./setup";
 import { setUserSettings, testUser } from "./users";
 
@@ -127,8 +127,9 @@ afterAll(async () => {
 describe("track_email", () => {
   it("moves the applications the inbox is about", async () => {
     const { counts } = await runTrackEmail(deps());
-    expect(counts).toMatchObject({ read: 6, new: 5, matched: 4, moved: 4, unmatched: 1, archived: 3, marked_read: 3 });
-    // Receipts and the rejection are read; the interview invite stays unread.
+    expect(counts).toMatchObject({ read: 6, new: 5, matched: 4, moved: 4, unmatched: 1, archived: 5, marked_read: 3 });
+    // Receipts and the rejection tied to their applications are read; the interview invite and the receipt it
+    // couldn't place stay unread.
     expect(markedRead.sort()).toEqual([`<${tag}-a@mail.test>`, `<${tag}-c@mail.test>`, `<${tag}-r@mail.test>`].sort());
 
     expect(await status("conf")).toBe("confirmed");
@@ -140,9 +141,12 @@ describe("track_email", () => {
     expect(calls).toContain("rejection");
     const { data: rejReason } = await db.from("emails").select("reason").eq("message_id", `<${tag}-r@mail.test>`).single();
     expect(rejReason!.reason).toMatch(/^Claude: reads as a rejection/);
-    // Receipts and the rejection are filed out of the inbox; the interview invite stays.
+    // Every email it understood is filed out of the inbox by kind, the one it couldn't place too (it's on To do).
     expect(moved.sort()).toEqual(
-      [`<${tag}-r@mail.test> -> ${REJECTIONS_FOLDER}`, `<${tag}-c@mail.test> -> ${RECEIVED_FOLDER}`, `<${tag}-a@mail.test> -> ${RECEIVED_FOLDER}`].sort(),
+      [
+        `<${tag}-r@mail.test> -> ${REJECTIONS_FOLDER}`, `<${tag}-c@mail.test> -> ${RECEIVED_FOLDER}`, `<${tag}-a@mail.test> -> ${RECEIVED_FOLDER}`,
+        `<${tag}-i@mail.test> -> ${INTERVIEWS_FOLDER}`, `<${tag}-t@mail.test> -> ${RECEIVED_FOLDER}`,
+      ].sort(),
     );
     const { data: rejection } = await db.from("emails").select("archived_at, application_id").eq("message_id", `<${tag}-r@mail.test>`).single();
     expect(rejection).toMatchObject({ application_id: apps.rej, archived_at: expect.any(String) });
@@ -155,6 +159,31 @@ describe("track_email", () => {
     expect([await status("twin1"), await status("twin2")]).toEqual(["submitted", "submitted"]);
     const { data: twin } = await db.from("emails").select("application_id, match_confidence, classification").eq("message_id", `<${tag}-t@mail.test>`).single();
     expect(twin).toEqual({ application_id: null, match_confidence: 0.5, classification: "confirmation" });
+  });
+
+  it("reads LinkedIn's receipts as receipts and files job alerts, correcting a receipt once taken for an alert", async () => {
+    await addApp("li", `Linkco ${tag}`, "Staff Engineer", "submitted");
+    await addApp("li2", `Oldlinkco ${tag}`, "Lead Engineer", "submitted");
+    // Saved by an earlier run as a job alert (LinkedIn's sender), still in the inbox.
+    await db.from("emails").insert({
+      user_id: userId, message_id: `<${tag}-li2@mail.test>`, received_at: ago(240).toISOString(), from_addr: "LinkedIn <jobs-noreply@linkedin.com>",
+      subject: `Your application to Lead Engineer at Oldlinkco ${tag}`, snippet: `Your application was sent to Oldlinkco ${tag}.`, classification: "job_alert", reason: "rules",
+    });
+    const li = { fromAddress: "jobs-noreply@linkedin.com", fromName: "LinkedIn" };
+    const fresh = [
+      mail("li", `Your application to Staff Engineer at Linkco ${tag}`, `Your application was sent to Linkco ${tag}. Staff Engineer · Remote`, li),
+      mail("alert", "30+ new jobs for you", "Senior Engineer at ...", { fromAddress: "jobalerts-noreply@linkedin.com", fromName: "LinkedIn Job Alerts" }),
+    ];
+    moved.length = 0;
+    markedRead.length = 0;
+    await runTrackEmail({ ...deps(), readMail: async () => fresh });
+    expect(await status("li")).toBe("confirmed");
+    expect(await status("li2")).toBe("confirmed");
+    expect(moved).toEqual(expect.arrayContaining([
+      `<${tag}-li@mail.test> -> ${RECEIVED_FOLDER}`, `<${tag}-li2@mail.test> -> ${RECEIVED_FOLDER}`, `<${tag}-alert@mail.test> -> ${ALERTS_FOLDER}`,
+    ]));
+    // A job alert needs nothing from you: read.
+    expect(markedRead).toEqual(expect.arrayContaining([`<${tag}-li@mail.test>`, `<${tag}-alert@mail.test>`]));
   });
 
   it("reads nothing twice", async () => {

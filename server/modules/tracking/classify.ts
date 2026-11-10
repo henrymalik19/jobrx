@@ -37,7 +37,12 @@ const CONFIRMATION =
 // can read like interview invites, so anything from one is an alert, never about an application here.
 const JOB_ALERT_SENDER =
   /(jobalerts?|jobs-listings|jobs-noreply|alerts?)@|[@.](linkedin|indeed|indeedemail|glassdoor|ziprecruiter|wellfound|otta|builtin|dice|monster|simplyhired)\.(com|co|net|io)\b/i;
-const JOB_ALERT_SUBJECT = /\bjob alert\b|\bjobs? (for|matching) you\b|\bnew jobs?\b|\brecommended jobs?\b/i;
+// LinkedIn's own mail about an application sent through it (Easy Apply): its receipt ("Your application to
+// Senior Engineer at Acme", "Ada, your application was sent to Acme"), or the company's answer relayed under
+// the same subject. Read before job alerts, which come from the same sender.
+const LINKEDIN_SENDER = /@([a-z0-9-]+\.)*linkedin\.com$/i;
+const LINKEDIN_APPLICATION = /^([^,]{1,40}, )?your application (to .+ at .+|was sent to .+)$/i;
+const JOB_ALERT_SUBJECT =/\bjob alert\b|\bjobs? (for|matching) you\b|\bnew jobs?\b|\brecommended jobs?\b/i;
 // Mail sent by an ATS or a company's careers address: a recruiter's personal note
 // may come from either, so it isn't "other" just because no rule fired.
 const ATS_SENDER = /greenhouse(-mail)?\.io|lever\.co|ashbyhq\.com|workday|smartrecruiters|icims|jobvite|myworkday/i;
@@ -49,6 +54,9 @@ const ATS_SENDER = /greenhouse(-mail)?\.io|lever\.co|ashbyhq\.com|workday|smartr
 export function classifyByRules(mail: MailText): EmailKind | null {
   const head = `${mail.subject}\n${mail.text.slice(0, 4000)}`;
   if (CODE.test(mail.subject)) return "code";
+  if (LINKEDIN_SENDER.test(mail.fromAddress.trim()) && LINKEDIN_APPLICATION.test(mail.subject.trim())) {
+    return saysRejected(head) ? "rejection" : "confirmation";
+  }
   if (JOB_ALERT_SENDER.test(mail.fromAddress) || JOB_ALERT_SUBJECT.test(mail.subject)) return "job_alert";
   if (saysRejected(head)) return "rejection";
   if (INTERVIEW.test(head)) return "interview";
