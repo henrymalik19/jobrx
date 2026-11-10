@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ownerContext } from "@/server/auth/require-owner";
 import type { AppStatus } from "@/server/modules/applications/application-status";
 import { blockingQuestions, listApplications, runnerHandedBack, yourSteps, type ApplicationWithDetails } from "@/server/modules/applications/applications.service";
-import { matchEmail } from "@/server/modules/tracking/classify";
+import { classifyByRules, matchEmail } from "@/server/modules/tracking/classify";
 import { listUnmatchedEmails, listUnsortedEmails, type UnmatchedEmail } from "@/server/modules/tracking/tracking.service";
 import { cn } from "@/shared/cn";
 import { ago, formatSalary } from "@/shared/format";
@@ -91,13 +91,11 @@ function Needs({ tab, app }: { tab: TabId; app: ApplicationWithDetails }) {
   );
 }
 
-/** What an email says, for the Unmatched emails tab. */
-const EMAIL_KIND_LABEL: Record<string, string> = {
-  confirmation: "Confirmation",
-  rejection: "Rejection",
-  interview: "Interview",
-  recruiter: "Recruiter reply",
-};
+/** What an unmatched email says: read again with today's rules (which may know better), else as it was sorted. */
+function readAgain(e: UnmatchedEmail): string {
+  const now = classifyByRules({ fromAddress: e.from, fromName: e.from, subject: e.subject, text: e.snippet });
+  return now === "confirmation" || now === "rejection" || now === "interview" || now === "recruiter" ? now : e.kind;
+}
 
 /** Emails tracking couldn't tie to one application, or couldn't sort: pick it, and it moves as if matched. */
 function UnmatchedEmails({ emails, unsorted, apps, now }: { emails: UnmatchedEmail[]; unsorted: UnmatchedEmail[]; apps: ApplicationWithDetails[]; now: Date }) {
@@ -131,7 +129,7 @@ function UnmatchedEmails({ emails, unsorted, apps, now }: { emails: UnmatchedEma
                         <span className="block text-sm text-muted-foreground">{e.from}</span>
                         <span className="mt-1 line-clamp-2 block text-xs text-muted-foreground" title={e.snippet}>{e.snippet}</span>
                       </TableCell>
-                      <TableCell className={cn("align-top", cardsOnPhone.full)}><LinkEmail emailId={e.id} targets={targets} suggested={guess.app?.id ?? null} askKind /></TableCell>
+                      <TableCell className={cn("align-top", cardsOnPhone.full)}><LinkEmail emailId={e.id} targets={targets} suggested={guess.app?.id ?? null} /></TableCell>
                       <TableCell className={cn("align-top text-muted-foreground", cardsOnPhone.meta)} data-label="Received">{ago(e.receivedAt, now)}</TableCell>
                     </TableRow>
                   );
@@ -147,7 +145,6 @@ function UnmatchedEmails({ emails, unsorted, apps, now }: { emails: UnmatchedEma
             <TableHeader className={scrollingTable.header}>
               <TableRow>
                 <TableHead>Email</TableHead>
-                <TableHead>Says</TableHead>
                 <TableHead>Application</TableHead>
                 <TableHead>Received</TableHead>
               </TableRow>
@@ -162,12 +159,10 @@ function UnmatchedEmails({ emails, unsorted, apps, now }: { emails: UnmatchedEma
                       <span className="block text-sm text-muted-foreground">{e.from}</span>
                       <span className="mt-1 line-clamp-2 block text-xs text-muted-foreground" title={e.snippet}>{e.snippet}</span>
                     </TableCell>
-                    <TableCell className="align-top">
-                      <Badge className={e.kind === "rejection" ? TONE_BADGE.muted : e.kind === "confirmation" ? TONE_BADGE.info : TONE_BADGE.success}>
-                        {EMAIL_KIND_LABEL[e.kind] ?? e.kind}
-                      </Badge>
+                    <TableCell className={cn("align-top", cardsOnPhone.full)}>
+                      {/* What it says, as tracking read it (read again with today's rules, which may know better): correct it before linking. */}
+                      <LinkEmail emailId={e.id} targets={targets} suggested={guess.app?.id ?? null} guess={readAgain(e)} />
                     </TableCell>
-                    <TableCell className={cn("align-top", cardsOnPhone.full)}><LinkEmail emailId={e.id} targets={targets} suggested={guess.app?.id ?? null} /></TableCell>
                     <TableCell className={cn("align-top text-muted-foreground", cardsOnPhone.meta)} data-label="Received">{ago(e.receivedAt, now)}</TableCell>
                   </TableRow>
                 );

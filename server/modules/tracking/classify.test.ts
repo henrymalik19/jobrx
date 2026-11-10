@@ -39,6 +39,9 @@ describe("classifyByRules", () => {
       "Unfortunately, the position has been filled.",
       "We regret to inform you that you were not chosen.",
       "Your application has not been selected for further consideration.",
+      // Upstart's: "others", and "regrettably" where others say "unfortunately".
+      "Thank you for your interest in joining Upstart and applying to the Senior Software Engineer, Unsecured Installments position. We understand it takes time and effort to evaluate opportunities, and we are grateful that you considered Upstart. Regrettably, we have decided to move forward with others at this time.",
+      "Sadly, we will not be proceeding with your application.",
     ]) expect(classifyByRules(mail("Your application", text)), text).toBe("rejection");
   });
 

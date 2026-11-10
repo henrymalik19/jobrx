@@ -18,7 +18,7 @@ const CODE = /\b(security|verification) code\b/i;
 // selected, we'll let you know", "unfortunately we can't reply to everyone"), so a sentence counts only
 // when it states a decision, and never when it's an "if".
 const REJECTION =
-  /\bunfortunately\b[^.!?]{0,160}\b(decided|decision|not (to )?(move|moving|proceed|proceeding)|not been selected|won.t be (moving|proceeding)|will not be (moving|proceeding)|other candidates|another candidate|(been|is|was) filled)\b|\bnot (to )?(move|moving) forward with (your|you)\b|\bdecided to (pursue|proceed|move forward|go) with (other|another)\b|\bmov(e|ing) forward with other candidates\b|\bwill not be (moving|proceeding) forward\b|\bno longer (being )?considered\b|\bposition has (been|now been) filled\b|\b(you|your application) (have|has) not been selected\b|\bdecided not to (move|proceed|pursue)\b|\bregret to inform\b/i;
+  /\b(unfortunately|regrettably|sadly)\b[^.!?]{0,160}\b(decided|decision|not (to )?(move|moving|proceed|proceeding)|not been selected|won.t be (moving|proceeding)|will not be (moving|proceeding)|other candidates|another candidate|(been|is|was) filled)\b|\bnot (to )?(move|moving) forward with (your|you)\b|\bdecided to (pursue|proceed|move forward|go) with (others?|another)\b|\bmov(e|ing) forward with (other candidates|others)\b|\bwill not be (moving|proceeding) forward\b|\bno longer (being )?considered\b|\bposition has (been|now been) filled\b|\b(you|your application) (have|has) not been selected\b|\bdecided not to (move|proceed|pursue)\b|\bregret to inform\b/i;
 /** Words that make a sentence conditional: what would happen, not what did. */
 const CONDITIONAL = /\b(if|should (we|you|your)|in the event|whether|unless|in case)\b/i;
 
