@@ -99,7 +99,10 @@ function readAgain(e: UnmatchedEmail): string {
 
 /** Emails tracking couldn't tie to one application, or couldn't sort: pick it, and it moves as if matched. */
 function UnmatchedEmails({ emails, unsorted, apps, now }: { emails: UnmatchedEmail[]; unsorted: UnmatchedEmail[]; apps: ApplicationWithDetails[]; now: Date }) {
-  const targets: LinkTarget[] = apps.map((a) => ({ id: a.id, label: `${a.job.company_name}: ${a.job.title}` }));
+  // Alphabetical by company, then title, so the one to pick is easy to find.
+  const targets: LinkTarget[] = apps
+    .map((a) => ({ id: a.id, label: `${a.job.company_name}: ${a.job.title}` }))
+    .sort((x, y) => x.label.localeCompare(y.label, undefined, { sensitivity: "base", numeric: true }));
   const tracked = apps.map((a) => ({ id: a.id, status: a.status, company: a.job.company_name, title: a.job.title, submittedAt: a.submitted_at }));
   return (
     <Card className={scrollingTable.card}>
