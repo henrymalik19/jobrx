@@ -1,17 +1,18 @@
 // The Ashby driver against a fixture page with the live form's structure, in headless Chrome.
-// Skipped where Chrome isn't installed (CI).
+// Skipped where Chrome isn't installed (never in CI: see test-chrome.ts).
 import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { chromium, type Browser, type Page } from "playwright-core";
+import type { Browser, Page } from "playwright-core";
+import { testChrome } from "./test-chrome";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FillStep } from "@/server/modules/apply/fill-plan";
 import { ashbyDriver } from "./ashby-driver";
 import { INSTANT } from "./human";
 
 const FIXTURE = pathToFileURL(path.join(path.dirname(fileURLToPath(import.meta.url)), "ashby-fixture.html")).href;
-const browser: Browser | null = await chromium.launch({ channel: "chrome", headless: true }).catch(() => null);
+const browser: Browser | null = await testChrome();
 let page: Page;
 const resume = path.join(tmpdir(), "ashby-test-resume.pdf");
 
