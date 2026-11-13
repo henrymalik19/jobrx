@@ -116,9 +116,9 @@ async function signIn(db: Db): Promise<string> {
 }
 
 /** Your name (for the resume file name), where you live (Country and Location fields) and your first education. */
-async function profileBasics(db: Db, userId: string): Promise<{ name: string; home: HomePlace; school: Schooling | null; role: WorkRole | null }> {
+async function profileBasics(db: Db, userId: string): Promise<{ name: string; email: string | null; home: HomePlace; school: Schooling | null; role: WorkRole | null }> {
   const [{ data }, { data: edu }, { data: job }] = await Promise.all([
-    db.from("profiles").select("first_name, last_name, city, state").eq("user_id", userId).maybeSingle(),
+    db.from("profiles").select("first_name, last_name, email, city, state").eq("user_id", userId).maybeSingle(),
     db.from("educations").select("institution, degree, field_of_study, start_year, end_year").eq("user_id", userId)
       .order("sort_order").order("end_year", { ascending: false, nullsFirst: true }).limit(1).maybeSingle(),
     // The most recent job: a current one first, then by start date.
@@ -127,6 +127,7 @@ async function profileBasics(db: Db, userId: string): Promise<{ name: string; ho
   ]);
   return {
     name: [data?.first_name, data?.last_name].filter(Boolean).join(" ") || "Resume",
+    email: data?.email ?? null,
     home: { city: data?.city ?? null, stateName: usStateName(data?.state), country: "United States" },
     school: edu ? { institution: edu.institution, degree: edu.degree, fieldOfStudy: edu.field_of_study, startYear: edu.start_year, endYear: edu.end_year } : null,
     role: job ? { employer: job.employer, title: job.title, startDate: job.start_date, endDate: job.end_date, isCurrent: job.is_current } : null,
@@ -167,7 +168,7 @@ async function main() {
     auth: { storage: fileStorage(), persistSession: true, autoRefreshToken: true, storageKey: "apply-runner" },
   });
   const userId = await signIn(db);
-  const { name, home, school, role } = await profileBasics(db, userId);
+  const { name, email, home, school, role } = await profileBasics(db, userId);
   // Required fields a form still has empty: the web app answers them from your profile with Claude.
   /** Asks the app (signed in as you) for something only the server can do, like a Claude call. */
   const askApp = async <T,>(path: string, input: unknown): Promise<T> => {
@@ -487,7 +488,7 @@ async function main() {
       let outcome = "error";
       let closeTab = false;
       try {
-        const result = await applyOne({ db, userId, driver: recorded, extraSteps: greenhouse ? greenhouseExtras(home, school, role) : [], readEmailCode: inbox?.waitForCode, mapFields, alternatives, askInApp, postingClosed, saveResume, fullName: name, log: both, filled, fillTurn }, app);
+        const result = await applyOne({ db, userId, driver: recorded, extraSteps: greenhouse ? greenhouseExtras(home, school, role) : [], readEmailCode: inbox?.waitForCode, mapFields, alternatives, askInApp, postingClosed, saveResume, fullName: name, email, log: both, filled, fillTurn }, app);
         outcome =
           result.result === "submitted" ? "submitted"
           : result.result === "needs_answers" ? `questions for you: ${result.questions}`

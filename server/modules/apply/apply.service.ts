@@ -118,7 +118,9 @@ export type ApplyDeps = {
   saveResume: (pdf: Uint8Array, fileName: string) => Promise<string>;
   /** Your name, for the resume's file name. */
   fullName: string;
-  log: (line: string) => void;
+  /** The email in your profile (where replies are read), picked where a form offers a choice of emails. */
+  email?: string | null;
+  log:(line: string) => void;
   /**
    * Reads the code a form emailed you, from your inbox: mail after `since`, for `company`.
    * Null when none arrives in time; without it you type the code yourself.
@@ -518,6 +520,16 @@ async function walkPages(deps: ApplyDeps, app: ApplyJob, steps: FillStep[], resu
         if (answer && sameAnswer(q.value, answer)) continue;
         if (!(await driver.fill(mine, resumePath)) && q.required) out.missed.push(mine.label);
         continue;
+      }
+      // An email picker (LinkedIn's lists your account's addresses, your primary one picked): the email in your
+      // profile, where replies to applications are read. One that doesn't offer it keeps the site's.
+      if (deps.email && q.kind === "select" && /\be-?mail\b/i.test(q.label)) {
+        const yours = q.options.find((o) => lower(o) === lower(deps.email!));
+        if (yours) {
+          if (!sameAnswer(q.value, [yours]) && !(await driver.fill(stepFor(q, [yours], q.label), resumePath))) out.missed.push(q.label);
+          continue;
+        }
+        deps.log(`${app.id}: "${q.label}" doesn't offer ${deps.email}; add it to your LinkedIn account to apply with it`);
       }
       const learned = mappings.get(q.key);
       if (learned?.learned && learned.value.length && q.kind !== "agreement") {

@@ -518,6 +518,37 @@ describe("apply runner", () => {
     await expect(markPostingClosed(db, db, userId, id)).rejects.toThrow(/only a linkedin posting/i);
   });
 
+  it("picks your profile's email where LinkedIn offers a choice of emails, over its primary one", async () => {
+    const id = await addApproved("paged-email");
+    const [job] = (await listReadyToApply(db, userId, ["greenhouse"])).filter((a) => a.id === id);
+    const fake = fakeDriver();
+    const emails = ["ada@gmail.test", "Jobs@Ada.test"];
+    const paged = pagedDriver(fake, [[{ key: "q:email address", label: "Email address", kind: "select", options: emails, value: ["ada@gmail.test"], required: true }]]);
+    const before = await streak();
+    try {
+      expect(await applyOne({ ...deps(paged.driver), email: "jobs@ada.test" }, job)).toMatchObject({ result: "submitted" });
+      expect(fake.filled["q:email address"]).toBe("Jobs@Ada.test");
+    } finally {
+      await db.from("field_mappings").delete().eq("user_id", userId).in("field_name", ["q:email address", "first_name", "question_9"]);
+      await db.from("platforms").update({ clean_streak: before?.clean_streak ?? 0, mode: before?.mode ?? "supervised" }).eq("user_id", userId).eq("ats", "greenhouse");
+    }
+  });
+
+  it("keeps LinkedIn's email when it doesn't offer your profile's", async () => {
+    const id = await addApproved("paged-email-missing");
+    const [job] = (await listReadyToApply(db, userId, ["greenhouse"])).filter((a) => a.id === id);
+    const fake = fakeDriver();
+    const paged = pagedDriver(fake, [[{ key: "q:email address", label: "Email address", kind: "select", options: ["ada@gmail.test"], value: ["ada@gmail.test"], required: true }]]);
+    const before = await streak();
+    try {
+      expect(await applyOne({ ...deps(paged.driver), email: "jobs@ada.test" }, job)).toMatchObject({ result: "submitted" });
+      expect(fake.filled["q:email address"]).toBeUndefined();
+    } finally {
+      await db.from("field_mappings").delete().eq("user_id", userId).in("field_name", ["q:email address", "first_name", "question_9"]);
+      await db.from("platforms").update({ clean_streak: before?.clean_streak ?? 0, mode: before?.mode ?? "supervised" }).eq("user_id", userId).eq("ats", "greenhouse");
+    }
+  });
+
   it("puts your answer from the app over what LinkedIn had filled in", async () => {
     const id = await addApproved("paged-yours");
     await db.from("application_questions").insert({ application_id: id, bucket: "auto", question: "Years of Python", field_name: "q:years of python", field_type: "text", answer: "8", required: true, sort_order: 5, options: null, answer_value: null });
