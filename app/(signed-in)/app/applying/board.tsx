@@ -12,9 +12,9 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { Clock, Ellipsis } from "lucide-react";
+import { ChevronLeft, ChevronRight, Clock, Ellipsis } from "lucide-react";
 import Link from "next/link";
-import { useOptimistic, useState, useTransition, type ReactNode } from "react";
+import { useEffect, useOptimistic, useRef, useState, useTransition, type ReactNode } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/shared/cn";
 import { TONE_BADGE, type Tone } from "../../_components/status";
@@ -68,7 +68,7 @@ const ACCENTS = {
 /** A lane color name. */
 export type Accent = keyof typeof ACCENTS;
 
-/** Hides a scroll area's scrollbar; it still scrolls by wheel, trackpad and touch. */
+/** Hides a lane's scrollbar; it still scrolls by wheel, trackpad and touch. */
 const NO_SCROLLBAR = "[scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
 
 /** Name of each status you can move a card to, for the Move menu. */
@@ -87,7 +87,7 @@ const TARGET_LABEL: Record<string, string> = {
  * Post-approval applications as columns. Drag a card to another column (on a
  * phone, press and hold it first), or use its Move menu, to record that you
  * applied, heard back, got an interview, an offer or a no; only moves the
- * database allows are offered. Dragging near the board's edge scrolls it.
+ * database allows are offered. Dragging near the board's edge scrolls it, and so do the arrows at its edges.
  */
 export function Board({ columns, cards, moves }: { columns: BoardColumn[]; cards: BoardCard[]; moves: Record<string, string[]> }) {
   const [shown, move] = useOptimistic(cards, (list, m: { id: string; to: string }) =>
@@ -129,7 +129,7 @@ export function Board({ columns, cards, moves }: { columns: BoardColumn[]; cards
     <DndContext id="applying-board" sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setDragging(null)}>
       <div className="flex min-h-0 flex-1 flex-col gap-3">
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-        <div className={cn("flex min-h-0 flex-1 gap-3 overflow-x-auto pb-2", NO_SCROLLBAR)}>
+        <SideScroller>
           {columns.map((col) => {
             const list = shown.filter((c) => col.statuses.includes(c.status));
             const to = dragging ? dropTarget(dragging, col) : null;
@@ -141,12 +141,61 @@ export function Board({ columns, cards, moves }: { columns: BoardColumn[]; cards
               </Lane>
             );
           })}
-        </div>
+        </SideScroller>
       </div>
       <DragOverlay dropAnimation={null}>
         {dragging && <CardBody card={dragging} accent={columns.find((c) => c.statuses.includes(dragging.status))?.accent ?? "zinc"} lifted />}
       </DragOverlay>
     </DndContext>
+  );
+}
+
+/**
+ * The lanes side by side, scrolling sideways: with the themed scrollbar, and an arrow at each edge while
+ * there are more lanes that way (a mouse without a sideways wheel reaches them too). Each arrow moves about
+ * two lanes.
+ */
+function SideScroller({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [more, setMore] = useState({ left: false, right: false });
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => setMore({ left: el.scrollLeft > 4, right: el.scrollLeft + el.clientWidth < el.scrollWidth - 4 });
+    measure();
+    el.addEventListener("scroll", measure, { passive: true });
+    const resized = new ResizeObserver(measure);
+    resized.observe(el);
+    return () => {
+      el.removeEventListener("scroll", measure);
+      resized.disconnect();
+    };
+  }, []);
+
+  const go = (dir: -1 | 1) => ref.current?.scrollBy({ left: dir * Math.max(300, ref.current.clientWidth * 0.6), behavior: "smooth" });
+  const arrow = (dir: -1 | 1) => (
+    <button
+      type="button"
+      aria-label={dir < 0 ? "Scroll to earlier lanes" : "Scroll to later lanes"}
+      onClick={() => go(dir)}
+      className={cn(
+        "absolute top-1/2 z-10 hidden size-9 -translate-y-1/2 items-center justify-center rounded-full border bg-background/90 text-muted-foreground shadow-md backdrop-blur transition hover:bg-background hover:text-foreground md:inline-flex",
+        dir < 0 ? "left-1" : "right-1",
+      )}
+    >
+      {dir < 0 ? <ChevronLeft className="size-5" /> : <ChevronRight className="size-5" />}
+    </button>
+  );
+
+  return (
+    <div className="relative flex min-h-0 flex-1">
+      <div ref={ref} className="flex min-h-0 flex-1 gap-3 overflow-x-auto pb-2">
+        {children}
+      </div>
+      {more.left && arrow(-1)}
+      {more.right && arrow(1)}
+    </div>
   );
 }
 
