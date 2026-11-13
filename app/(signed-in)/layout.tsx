@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
 import { Button } from "@/components/ui/button";
-import { requireOwner } from "@/server/auth/require-owner";
+import { isAdmin } from "@/server/auth/admin";
+import { ownerContext, requireOwner } from "@/server/auth/require-owner";
 import { Logo } from "@/components/brand/logo";
 import { APP_VERSION, shortSha } from "@/shared/version";
 import { signOut } from "../login/actions";
@@ -22,6 +23,21 @@ async function Account() {
       <span className="hidden truncate md:block md:max-w-full">{owner.email}</span>
       <Button type="submit" variant="ghost" size="sm" className="md:-ml-2">Sign out</Button>
     </form>
+  );
+}
+
+/** The app's version, for admins only (Settings shows it with the apply runner's to everyone). */
+async function VersionTag() {
+  const { db, owner } = await ownerContext();
+  if (!(await isAdmin(db, owner.id))) return null;
+  return (
+    <Link
+      href="/app/settings"
+      className="mt-1 block w-fit font-mono text-xs text-muted-foreground hover:text-foreground"
+      title={[APP_VERSION.message, APP_VERSION.builtAt && `deployed ${APP_VERSION.builtAt.slice(0, 16).replace("T", " ")} UTC`].filter(Boolean).join(" · ")}
+    >
+      v {shortSha(APP_VERSION.sha)}
+    </Link>
   );
 }
 
@@ -54,14 +70,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <Suspense fallback={null}>
             <Account />
           </Suspense>
-          {/* The app's version (Settings shows it with the apply runner's). */}
-          <Link
-            href="/app/settings"
-            className="mt-1 block w-fit font-mono text-xs text-muted-foreground hover:text-foreground"
-            title={[APP_VERSION.message, APP_VERSION.builtAt && `deployed ${APP_VERSION.builtAt.slice(0, 16).replace("T", " ")} UTC`].filter(Boolean).join(" · ")}
-          >
-            v {shortSha(APP_VERSION.sha)}
-          </Link>
+          <Suspense fallback={null}>
+            <VersionTag />
+          </Suspense>
         </div>
       </aside>
       <div className="w-full min-w-0 flex-1 px-4 py-8 md:h-screen md:overflow-y-auto md:px-8">

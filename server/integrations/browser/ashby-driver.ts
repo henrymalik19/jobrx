@@ -41,12 +41,13 @@ export function ashbyDriver(page: Page, formTimeoutMs = 15_000, pace: Pace = HUM
     const byPath = box(step.fieldName);
     if ((await byPath.count()) > 0 || !step.label) return byPath;
     const wanted = norm(step.label.replace(/[*✱]\s*$/, ""));
-    const paths = await fields.evaluateAll((all, w) => {
-      const clean = (t: string) => t.replace(/\s+/g, " ").replace(/[*✱]\s*$/, "").trim().toLowerCase();
-      return all
-        .filter((e) => clean(e.querySelector("label")?.textContent ?? "") === w)
-        .map((e) => e.getAttribute("data-field-path") ?? "");
-    }, wanted);
+    // Plain JavaScript text: the runner's TypeScript loader adds helpers to functions that don't exist in the page.
+    const paths = (await page.evaluate(`(() => {
+      const clean = (t) => (t || "").replace(/\\s+/g, " ").replace(/[*✱]\\s*$/, "").trim().toLowerCase();
+      return [...document.querySelectorAll("[data-field-path]")]
+        .filter((e) => clean(e.querySelector("label") && e.querySelector("label").textContent) === ${JSON.stringify(wanted)})
+        .map((e) => e.getAttribute("data-field-path") || "");
+    })()`)) as string[];
     if (paths.length !== 1 || !paths[0]) return byPath;
     moved.set(step.fieldName, paths[0]);
     return box(step.fieldName);
