@@ -20,8 +20,10 @@ export const fieldKey = (label: string) => `q:${norm(label).replace(/[*✱]\s*$/
 const SENT = /your application was sent|application sent|application submitted/i;
 /** LinkedIn's own checks: a security check page, a CAPTCHA, or "verify it's you". */
 const CHECK = /security (check|verification)|verify (it'?s you|you'?re (a )?human)|captcha|unusual activity/i;
-/** A posting you've already applied to, or one no longer taking applications. */
-const CLOSED = /no longer accepting applications|applied \d+ \w+ ago|application submitted/i;
+/** A posting no longer taking applications (LinkedIn shows this in place of Easy Apply). */
+const CLOSED = /no longer accepting applications/i;
+/** A posting you've already applied to. */
+const APPLIED = /applied \d+ \w+ ago|application submitted/i;
 
 // Runs in the page (inside SCAN and FIND): a choice's own text, and the question a radio or checkbox answers.
 // LinkedIn groups choices in a radiogroup or fieldset, or (newer forms) only by a shared name. A choice's text
@@ -255,8 +257,15 @@ export function linkedinDriver(page: Page, pace: Pace = HUMAN): FormDriver {
     async open(url) {
       await page.goto(url, { waitUntil: "domcontentloaded" });
       const apply = page.locator('[aria-label="Easy Apply to this job"]').first();
-      if (!(await apply.waitFor({ timeout: 15_000 }).then(() => true, () => false))) return "no_form";
-      if (CLOSED.test((await page.locator("main").first().innerText().catch(() => "")).slice(0, 3000))) return "no_form";
+      // Easy Apply, or LinkedIn saying the posting is closed, whichever shows first.
+      const closedNote = page.locator("main").getByText(CLOSED).first();
+      const shown = await Promise.any([
+        apply.waitFor({ timeout: 15_000 }).then(() => "apply" as const),
+        closedNote.waitFor({ timeout: 15_000 }).then(() => "closed" as const),
+      ]).catch(() => "none" as const);
+      const text = (await page.locator("main").first().innerText().catch(() => "")).slice(0, 3000);
+      if (shown === "closed" || CLOSED.test(text)) return "closed";
+      if (shown === "none" || APPLIED.test(text)) return "no_form";
       await pause(page, pace);
       await apply.click();
       return (await dialog.waitFor({ timeout: 15_000 }).then(() => true, () => false)) ? "ok" : "no_form";

@@ -173,6 +173,9 @@ async function main() {
     (await askApp<{ alternatives: string[] }>("/api/runner/alternatives", input)).alternatives;
   const askInApp: NonNullable<ApplyDeps["askInApp"]> = async (applicationId, questions) =>
     (await askApp<{ status: string }>("/api/runner/form-questions", { applicationId, questions })).status;
+  const postingClosed: NonNullable<ApplyDeps["postingClosed"]> = async (applicationId) => {
+    await askApp<{ closed: boolean }>("/api/runner/posting-closed", { applicationId });
+  };
   const uploadRun = (dir: string, app: { id: string; job: { title: string; company_name: string } }, startedAt: Date, outcome: string) =>
     uploadRunWith(db, { userId, userName: name }, dir, app, startedAt, outcome);
   const stale = await handBackUnfinished(db, userId);
@@ -390,12 +393,17 @@ async function main() {
       let outcome = "error";
       let closeTab = false;
       try {
-        const result = await applyOne({ db, userId, driver: recorded, extraSteps: greenhouse ? greenhouseExtras(home, school, role) : [], readEmailCode: inbox?.waitForCode, mapFields, alternatives, askInApp, saveResume, fullName: name, log: both, filled, fillTurn }, app);
-        outcome = result.result === "submitted" ? "submitted" : result.result === "needs_answers" ? `questions for you: ${result.questions}` : `handed back: ${result.reason}`;
+        const result = await applyOne({ db, userId, driver: recorded, extraSteps: greenhouse ? greenhouseExtras(home, school, role) : [], readEmailCode: inbox?.waitForCode, mapFields, alternatives, askInApp, postingClosed, saveResume, fullName: name, log: both, filled, fillTurn }, app);
+        outcome =
+          result.result === "submitted" ? "submitted"
+          : result.result === "needs_answers" ? `questions for you: ${result.questions}`
+          : result.result === "closed" ? "posting closed: expired"
+          : `handed back: ${result.reason}`;
         // Submitted tabs are finished with (after a moment to see the thank-you page); handed-back
         // ones stay open for you, except a form nobody submitted in time, reopened from the app.
+        // A closed posting has nothing left to do.
         if (result.result === "submitted") setTimeout(() => void tab.close().catch(() => undefined), SUBMITTED_TAB_MS);
-        else if (result.result === "needs_answers" || result.closeTab) closeTab = true;
+        else if (result.result === "needs_answers" || result.result === "closed" || result.closeTab) closeTab = true;
         // A security check on LinkedIn stops all LinkedIn work until you've dealt with it.
         if (app.job.source === "linkedin" && result.result === "handed_back" && (await linkedinBlocked(tab).catch(() => null))) {
           await pauseLinkedIn("LinkedIn showed a security check while applying.");

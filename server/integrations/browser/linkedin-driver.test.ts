@@ -85,10 +85,11 @@ describe.skipIf(!browser)("linkedinDriver", () => {
     expect(await driver.confirmation()).toBeNull();
   }, 30_000);
 
-  it("finds no form on a page without Easy Apply", async () => {
-    await page.setContent("<main><p>No longer accepting applications</p></main>");
+  it("tells a closed posting from a page with no form for another reason", async () => {
     const driver = linkedinDriver(page, INSTANT);
-    // A data URL stands in for a closed posting.
-    expect(await driver.open("data:text/html,<main><p>No longer accepting applications</p></main>")).toBe("no_form");
-  }, 30_000);
+    // Data URLs stand in for the job pages: LinkedIn shows the note in place of Easy Apply.
+    expect(await driver.open("data:text/html,<main><h2>Acme</h2><p>No longer accepting applications</p></main>")).toBe("closed");
+    // Already applied: no Easy Apply, but the posting isn't closed.
+    expect(await driver.open("data:text/html,<main><h2>Acme</h2><p>Applied 2 days ago</p></main>")).toBe("no_form");
+  }, 45_000);
 });

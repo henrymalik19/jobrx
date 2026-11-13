@@ -16,6 +16,7 @@ import { IllegalTransitionError, listUserMoves, moveApplication } from "@/server
 import { listReadyToApply, setApplyStep } from "@/server/modules/apply/apply.repository";
 import { applyOne, handBackUnfinished, retryApply, setPlatformMode, STOPPED_NOTE, type FormDriver, type OpenField, type PageQuestion, type QuestionToAsk } from "@/server/modules/apply/apply.service";
 import type { FieldAnswer } from "@/server/modules/apply/field-mapping";
+import { markPostingClosed } from "@/server/modules/apply/posting-closed";
 import type { FillStep } from "@/server/modules/apply/fill-plan";
 import { APPLY_RUNS_BUCKET, listApplyRuns, listRunFilters, saveApplyRun } from "@/server/modules/apply/apply-runs";
 import { companiesAtLimit } from "@/server/modules/companies/apply-limits";
@@ -491,6 +492,30 @@ describe("apply runner", () => {
       await db.from("field_mappings").delete().eq("user_id", userId).in("field_name", ["first_name", "question_9"]);
       await db.from("platforms").delete().eq("user_id", userId).eq("ats", "linkedin");
     }
+  });
+
+  it("expires an application whose LinkedIn posting stopped taking applications, and marks the job closed", async () => {
+    const id = await addApproved("closed-posting");
+    const { data: row } = await db.from("applications").select("job_id").eq("id", id).single();
+    await db.from("jobs").update({ source: "linkedin", closed_at: null }).eq("id", row!.job_id);
+    const [job] = (await listReadyToApply(db, userId, ["linkedin"])).filter((a) => a.id === id);
+    const told: string[] = [];
+    const driver: FormDriver = { ...fakeDriver().driver, open: async () => "closed" };
+    const out = await applyOne({ ...deps(driver), postingClosed: async (appId) => void told.push(appId) }, job);
+    expect(out).toEqual({ result: "closed" });
+    const { data: after } = await db.from("applications").select("status, apply_note").eq("id", id).single();
+    // Expired, not handed back: there's nothing to apply to.
+    expect(after).toEqual({ status: "expired", apply_note: "The posting is no longer accepting applications." });
+    expect(told).toEqual([id]);
+
+    // What the app does when told: the job is marked closed, once; only a LinkedIn job, only yours.
+    expect(await markPostingClosed(db, db, userId, id)).toBe(true);
+    const { data: closedJob } = await db.from("jobs").select("closed_at").eq("id", row!.job_id).single();
+    expect(closedJob!.closed_at).not.toBeNull();
+    expect(await markPostingClosed(db, db, userId, id)).toBe(false);
+    await expect(markPostingClosed(db, db, randomUUID(), id)).rejects.toThrow(/no such application/i);
+    await db.from("jobs").update({ source: "greenhouse", closed_at: null }).eq("id", row!.job_id);
+    await expect(markPostingClosed(db, db, userId, id)).rejects.toThrow(/only a linkedin posting/i);
   });
 
   it("puts your answer from the app over what LinkedIn had filled in", async () => {

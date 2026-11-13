@@ -58,8 +58,11 @@ export type QuestionToAsk = {
 
 /** What the runner needs from a browser tab with an application form open. */
 export interface FormDriver {
-  /** Opens the form; "no_form" when the page has none (closed posting, login wall). */
-  open(url: string): Promise<"ok" | "no_form">;
+  /**
+   * Opens the form: "closed" when the posting says it's no longer accepting applications, "no_form" when the
+   * page has no form for another reason (a login wall, already applied).
+   */
+  open(url: string): Promise<"ok" | "no_form" | "closed">;
   /** Fills one field; false when the field or the option isn't on the page. */
   fill(step: FillStep, resumePath: string): Promise<boolean>;
   /** Each step's current value as shown on the page, by field name (unreadable fields left out). */
@@ -154,6 +157,11 @@ export type ApplyDeps = {
    * answer is handed back.
    */
   askInApp?: (applicationId: string, questions: QuestionToAsk[]) => Promise<string>;
+  /**
+   * Tells the app an application's posting is closed (the runner can't mark a job itself): the job leaves the
+   * open ones, so others' applications there expire too.
+   */
+  postingClosed?: (applicationId: string) => Promise<void>;
 };
 
 /** How one run ended. */
@@ -162,7 +170,9 @@ export type ApplyOutcome =
   /** closeTab: nobody is using the tab any more (the wait timed out); otherwise it stays open to finish by hand. */
   | { result: "handed_back"; reason: string; closeTab?: boolean }
   /** A form in pages had questions for you: discarded unsent, and asked in the app. */
-  | { result: "needs_answers"; questions: number };
+  | { result: "needs_answers"; questions: number }
+  /** The posting stopped taking applications: expired, nothing for you to do. */
+  | { result: "closed" };
 
 const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -193,6 +203,20 @@ async function handBack(deps: ApplyDeps, app: ApplyJob, reason: string): Promise
     href: applicationHref(app.id), applicationId: app.id,
   });
   return { result: "handed_back", reason };
+}
+
+/**
+ * The posting stopped taking applications before this one was sent: Expired (as discovery expires one whose
+ * posting left its board), with no hand-back, since there's nothing to apply to. The app is told so the job
+ * is marked closed.
+ */
+async function postingClosed(deps: ApplyDeps, app: ApplyJob): Promise<Extract<ApplyOutcome, { result: "closed" }>> {
+  const note = "The posting is no longer accepting applications.";
+  deps.log(`${app.id}: ${note} Expired.`);
+  await setApplyStep(deps.db, app.id, null, note);
+  await transition(deps.db, app.id, "expired", "system:posting_closed", { reason: note });
+  await deps.postingClosed?.(app.id).catch((err) => deps.log(`${app.id}: couldn't mark the job closed: ${(err as Error).message}`));
+  return { result: "closed" };
 }
 
 /** The runner waits for you in the Chrome window: the application says why, and a notification tells you. */
@@ -606,7 +630,9 @@ async function run(deps: ApplyDeps, app: ApplyJob): Promise<ApplyOutcome> {
   // "" is no file of ours: the form keeps the resume it has.
   const resumePath = !app.resume?.pdf_path ? "" : await deps.saveResume(await downloadResume(db, app.resume.pdf_path), `${deps.fullName} Resume.pdf`);
 
-  if ((await driver.open(url)) === "no_form") return handBack(deps, app, "The posting has no application form (it may have closed).");
+  const opened = await driver.open(url);
+  if (opened === "closed") return postingClosed(deps, app);
+  if (opened === "no_form") return handBack(deps, app, "The posting has no application form (it may have closed).");
   // A date picker ("earliest start date") takes a date: "immediately available" is typed as today's date.
   const dated = await asDates(driver, steps, new Date());
   if (dated.size) {
@@ -697,7 +723,7 @@ async function run(deps: ApplyDeps, app: ApplyJob): Promise<ApplyOutcome> {
     // Filled again in its turn, so it doesn't fill alongside another tab.
     const endTurn = await (deps.fillTurn?.() ?? Promise.resolve(() => {}));
     try {
-      if ((await driver.open(url)) === "no_form") return fail("After refusing the submission, the posting has no application form any more.");
+      if ((await driver.open(url)) !== "ok") return fail("After refusing the submission, the posting has no application form any more.");
       // The same answers again, with any text you changed in the form before submitting.
       const shown = waited.last ?? {};
       for (const step of [...steps.filter((x) => !other.has(x.fieldName)), ...extraSteps]) {
