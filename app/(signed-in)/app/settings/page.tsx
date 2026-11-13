@@ -12,6 +12,7 @@ import { setLinkedInResumeAction, setPlatformModeAction, setPublicPageAction } f
 import { usesLinkedInResume } from "@/server/modules/apply/linkedin-resume";
 import { FormSkeleton } from "../../_components/skeletons";
 import { HandleForm } from "./handle-form";
+import { VersionsCard } from "./versions-card";
 import { cardsOnPhone } from "@/app/(signed-in)/_components/data-table";
 import { cn } from "@/shared/cn";
 
@@ -162,6 +163,7 @@ export default function SettingsPage() {
         <PublicPageSetting />
         <ApplyRunnerSetting />
         <LinkedInResumeSetting />
+        <VersionsCard />
       </Suspense>
     </main>
   );

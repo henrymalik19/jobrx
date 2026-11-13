@@ -35,6 +35,18 @@ import { usStateName } from "@/server/modules/criteria/places";
 import { APPLY_ATS, applyOne, handBackUnfinished, type ApplyDeps } from "@/server/modules/apply/apply.service";
 import { saveApplyRun, type RunFile } from "@/server/modules/apply/apply-runs";
 import { parseApplyEnv } from "@/shared/env";
+import { shortSha } from "@/shared/version";
+import { reportRunnerStatus, type RunnerStatus } from "@/server/modules/apply/runner-status";
+import { execFileSync } from "node:child_process";
+
+/** Git's answer in this folder, or "" when there's no git (or no repository). */
+const git = (...args: string[]) => {
+  try {
+    return execFileSync("git", args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch {
+    return "";
+  }
+};
 
 const DATA = path.resolve("data");
 const SESSION_FILE = path.join(DATA, "apply-session.json");
@@ -211,6 +223,31 @@ async function main() {
     return file;
   };
 
+  // What it reports about itself (Settings shows it): the code it loaded at start, which it keeps running.
+  const startedAt = new Date().toISOString();
+  const status: RunnerStatus = {
+    version: git("rev-parse", "HEAD"),
+    message: git("log", "-1", "--format=%s").slice(0, 200),
+    localChanges: git("status", "--porcelain", "--untracked-files=no") !== "",
+    startedAt,
+    seenAt: startedAt,
+    behind: false,
+    stoppedAt: null,
+  };
+  let lastReport = 0;
+  /** Reports it's running (once a minute), noticing when the folder's code moved on since it started. */
+  const heartbeat = async () => {
+    if (Date.now() - lastReport < 60_000) return;
+    lastReport = Date.now();
+    const now = git("rev-parse", "HEAD");
+    if (!status.behind && status.version && now && now !== status.version) {
+      status.behind = true;
+      log(`the code changed since the runner started (now ${shortSha(now)}); restart it (Ctrl+C, then pnpm worker:apply) to run the new code`);
+    }
+    status.seenAt = new Date().toISOString();
+    await reportRunnerStatus(db, userId, status).catch(() => undefined);
+  };
+
   let stopping = false;
   // Stopping hands back the open application right away (it may be waiting up to an hour for you),
   // closes Chrome and exits; a second Ctrl+C exits without waiting.
@@ -224,6 +261,7 @@ async function main() {
       return 0;
     });
     if (moved) log(`moved ${moved} application(s) to Runner stuck`);
+    await reportRunnerStatus(db, userId, { ...status, seenAt: new Date().toISOString(), stoppedAt: new Date().toISOString() }).catch(() => undefined);
     await rm(files, { recursive: true, force: true }).catch(() => undefined);
     await (browser as BrowserContext | null)?.close().catch(() => undefined);
     log("apply runner stopped");
@@ -237,6 +275,8 @@ async function main() {
     ? codeInbox({ host: env.APPLY_IMAP_HOST, port: env.APPLY_IMAP_PORT, user: inboxUser, password: env.JOB_INBOX_PASSWORD }, log)
     : null;
   log(`apply runner started for ${name}; watching for approved ${APPLY_ATS.join(", ")} applications (Ctrl+C to stop)`);
+  log(`apply runner version ${shortSha(status.version)}${status.message ? ` ("${status.message}")` : ""}${status.localChanges ? ", with uncommitted changes" : ""}`);
+  await reportRunnerStatus(db, userId, status).catch((err) => log(`couldn't report the runner's version: ${(err as Error).message}`));
   log(inbox ? `emailed security codes are read from ${inboxUser}` : "emailed security codes: you type them (no job inbox address or JOB_INBOX_PASSWORD)");
   const linkedinOn = env.APPLY_LINKEDIN === "1";
   log(linkedinOn
@@ -463,6 +503,7 @@ async function main() {
           .finally(() => (searching = null));
       }
       if (ready.length === 0 && open.size === 0 && !searching) await closeIfIdle();
+      await heartbeat();
     } catch (err) {
       log(`poll failed: ${(err as Error).message}`);
     }
