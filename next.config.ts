@@ -11,6 +11,8 @@ const git = (...args: string[]) => {
 };
 
 const nextConfig: NextConfig = {
+  // The end-to-end tests' server builds into its own folder, so it runs beside `pnpm dev`.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   // The version the app shows (shared/version.ts): the commit it was built from (Vercel's build variables, else
   // git) and when it was built.
   env: {

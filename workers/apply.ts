@@ -37,6 +37,7 @@ import { saveApplyRun, type RunFile } from "@/server/modules/apply/apply-runs";
 import { parseApplyEnv } from "@/shared/env";
 import { shortSha } from "@/shared/version";
 import { reportRunnerStatus, type RunnerStatus } from "@/server/modules/apply/runner-status";
+import { checkForUpdate, pullUpdate, RESTART_EXIT } from "./apply-update";
 import { execFileSync } from "node:child_process";
 
 /** Git's answer in this folder, or "" when there's no git (or no repository). */
@@ -51,6 +52,8 @@ const git = (...args: string[]) => {
 const DATA = path.resolve("data");
 const SESSION_FILE = path.join(DATA, "apply-session.json");
 const POLL_MS = 20_000;
+/** How often it asks GitHub for newer code (self-update). */
+const UPDATE_CHECK_MS = 10 * 60_000;
 /** How many applications can be open at once: one filling, the rest filled and waiting for you. */
 const MAX_OPEN = 4;
 /** How often LinkedIn is searched for new Easy Apply jobs (when it's on): as often as discovery checks the boards. */
@@ -233,6 +236,9 @@ async function main() {
     seenAt: startedAt,
     behind: false,
     stoppedAt: null,
+    // Only under pnpm worker:apply (its launcher starts it again after an update), unless turned off.
+    autoUpdate: process.env.APPLY_SUPERVISED === "1" && env.APPLY_SELF_UPDATE === "1",
+    updateBlocked: null,
   };
   let lastReport = 0;
   /** Reports it's running (once a minute), noticing when the folder's code moved on since it started. */
@@ -242,30 +248,78 @@ async function main() {
     const now = git("rev-parse", "HEAD");
     if (!status.behind && status.version && now && now !== status.version) {
       status.behind = true;
-      log(`the code changed since the runner started (now ${shortSha(now)}); restart it (Ctrl+C, then pnpm worker:apply) to run the new code`);
+      log(status.autoUpdate
+        ? `the code changed since the runner started (now ${shortSha(now)}); it restarts on it once nothing is open`
+        : `the code changed since the runner started (now ${shortSha(now)}); restart it (Ctrl+C, then pnpm worker:apply) to run the new code`);
     }
     status.seenAt = new Date().toISOString();
     await reportRunnerStatus(db, userId, status).catch(() => undefined);
   };
 
+  /** The update step waiting for the runner to be idle (pull, or restart), from the last check. */
+  let update: "pull" | "restart" | null = null;
+  let lastUpdateCheck = 0;
+  /** Every 10 minutes: asks GitHub for newer code (see checkForUpdate); logs a reason it won't pull once. */
+  const checkUpdate = async () => {
+    if (!status.autoUpdate || Date.now() - lastUpdateCheck < UPDATE_CHECK_MS) return;
+    lastUpdateCheck = Date.now();
+    const step = await checkForUpdate(status.version).catch((err) => {
+      log(`update: couldn't check: ${(err as Error).message.split("\n")[0]}`);
+      return null;
+    });
+    if (!step) return;
+    const blocked = step.kind === "blocked" ? step.why : null;
+    if (blocked && blocked !== status.updateBlocked) log(`update: newer code is on GitHub, but ${blocked}; pull it yourself, then restart`);
+    status.updateBlocked = blocked;
+    if (step.kind === "pull" || step.kind === "restart") {
+      if (!update) log(step.kind === "pull" ? `update: newer code is on GitHub (${shortSha(step.remote ?? "")}); updating once nothing is open` : "update: restarting on the folder's new code once nothing is open");
+      update = step.kind;
+      status.behind = true;
+    }
+  };
+  /** Updates and restarts when an update is waiting and nothing is open: no form, search or sign-in tab. */
+  const updateIfIdle = async () => {
+    if (!update || open.size > 0 || waiting.size > 0 || searching || signInTab) return;
+    if (update === "pull") {
+      log("update: pulling the newer code");
+      const failed = await pullUpdate(log);
+      if (failed) {
+        // Stays on the code it runs; the next check tries again.
+        log(`update: ${failed}`);
+        update = null;
+        status.updateBlocked = failed;
+        return;
+      }
+    }
+    await shutdown("updating: restarting on the new code", RESTART_EXIT);
+  };
+
   let stopping = false;
-  // Stopping hands back the open application right away (it may be waiting up to an hour for you),
-  // closes Chrome and exits; a second Ctrl+C exits without waiting.
-  const stop = async () => {
-    if (stopping) process.exit(130);
+  /**
+   * Hands back anything open, closes Chrome and exits. A stop (Ctrl+C) says it stopped; an update restart
+   * doesn't, as the launcher starts it again right away.
+   */
+  const shutdown = async (why: string, code = 0) => {
     stopping = true;
     // (Any an earlier run left mid-way are moved too, quietly: the count below says what moved.)
-    log(open.size ? `stopping: moving ${open.size === 1 ? "the open application" : `the ${open.size} open applications`} to Runner stuck` : "stopping");
+    log(open.size ? `${why}: moving ${open.size === 1 ? "the open application" : `the ${open.size} open applications`} to Runner stuck` : why);
     const moved = await handBackUnfinished(db, userId).catch((err) => {
       log(`couldn't hand back: ${(err as Error).message}`);
       return 0;
     });
     if (moved) log(`moved ${moved} application(s) to Runner stuck`);
-    await reportRunnerStatus(db, userId, { ...status, seenAt: new Date().toISOString(), stoppedAt: new Date().toISOString() }).catch(() => undefined);
+    const at = new Date().toISOString();
+    await reportRunnerStatus(db, userId, { ...status, seenAt: at, stoppedAt: code === RESTART_EXIT ? null : at }).catch(() => undefined);
     await rm(files, { recursive: true, force: true }).catch(() => undefined);
     await (browser as BrowserContext | null)?.close().catch(() => undefined);
-    log("apply runner stopped");
-    process.exit(0);
+    log(code === RESTART_EXIT ? "apply runner restarting" : "apply runner stopped");
+    process.exit(code);
+  };
+  // Stopping hands back the open application right away (it may be waiting up to an hour for you),
+  // closes Chrome and exits; a second Ctrl+C exits without waiting.
+  const stop = async () => {
+    if (stopping) process.exit(130);
+    await shutdown("stopping");
   };
   // SIGBREAK is Ctrl+Break on Windows; SIGHUP is the terminal window closing.
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK"] as const) process.on(signal, () => void stop());
@@ -504,6 +558,8 @@ async function main() {
       }
       if (ready.length === 0 && open.size === 0 && !searching) await closeIfIdle();
       await heartbeat();
+      await checkUpdate();
+      await updateIfIdle();
     } catch (err) {
       log(`poll failed: ${(err as Error).message}`);
     }

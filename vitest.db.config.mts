@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
-import { keepNames } from "./tests/keep-names";
+import { keepNames } from "./tests/keep-names.mts";
 
 // Database integration tests. Requires a running local Supabase (`pnpm db:start`).
 export default defineConfig({

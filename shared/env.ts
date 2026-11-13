@@ -31,6 +31,8 @@ const applySchema = serverSchema.pick({ SUPABASE_URL: true, SUPABASE_ANON_KEY: t
   // At most this many LinkedIn applications an hour, and a day.
   APPLY_LINKEDIN_PER_HOUR: z.preprocess(blank, z.coerce.number().int().min(1).max(20).default(4)),
   APPLY_LINKEDIN_PER_DAY: z.preprocess(blank, z.coerce.number().int().min(1).max(100).default(20)),
+  // Updates itself from GitHub's main once nothing is open (when started with pnpm worker:apply); 0 turns it off.
+  APPLY_SELF_UPDATE: z.preprocess(blank, z.enum(["0", "1"]).default("1")),
 });
 
 /** Environment the local apply runner needs. */

@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
-import { keepNames } from "./tests/keep-names";
+import { keepNames } from "./tests/keep-names.mts";
 
 export default defineConfig({
   // Compiled as the workers run it (tsx), so code that breaks only there breaks here too.

@@ -23,6 +23,10 @@ export const runnerStatusSchema = z.object({
   behind: z.boolean(),
   /** When it stopped (Ctrl+C); null while running. */
   stoppedAt: z.string().nullable(),
+  /** It updates itself (pulls main and restarts once nothing is open); absent from runners before this. */
+  autoUpdate: z.boolean().optional(),
+  /** Newer code is on GitHub but it won't pull it, and why (uncommitted changes, say); null when nothing's in the way. */
+  updateBlocked: z.string().nullable().optional(),
 });
 /** One report, as saved. */
 export type RunnerStatus = z.infer<typeof runnerStatusSchema>;
