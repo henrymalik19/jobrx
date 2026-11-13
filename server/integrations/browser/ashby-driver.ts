@@ -28,7 +28,29 @@ const CONFIRMED = /thank(s| you) for (applying|your (application|interest))|appl
  */
 export function ashbyDriver(page: Page, formTimeoutMs = 15_000, pace: Pace = HUMAN): FormDriver {
   const fields = page.locator("[data-field-path]");
-  const box = (fieldName: string) => page.locator(`[data-field-path=${JSON.stringify(fieldName)}]`).first();
+  // A field the company replaced after the form was read (Oneapp's LinkedIn) has a new path: found by its
+  // question instead, and remembered by the old one.
+  const moved = new Map<string, string>();
+  const box = (fieldName: string) => page.locator(`[data-field-path=${JSON.stringify(moved.get(fieldName) ?? fieldName)}]`).first();
+
+  /**
+   * The box for a step: by its field path, else (the path is gone) the one box whose question reads the same,
+   * when exactly one does.
+   */
+  async function boxFor(step: FillStep): Promise<Locator> {
+    const byPath = box(step.fieldName);
+    if ((await byPath.count()) > 0 || !step.label) return byPath;
+    const wanted = norm(step.label.replace(/[*✱]\s*$/, ""));
+    const paths = await fields.evaluateAll((all, w) => {
+      const clean = (t: string) => t.replace(/\s+/g, " ").replace(/[*✱]\s*$/, "").trim().toLowerCase();
+      return all
+        .filter((e) => clean(e.querySelector("label")?.textContent ?? "") === w)
+        .map((e) => e.getAttribute("data-field-path") ?? "");
+    }, wanted);
+    if (paths.length !== 1 || !paths[0]) return byPath;
+    moved.set(step.fieldName, paths[0]);
+    return box(step.fieldName);
+  }
 
   /** The option controls in a box: radio buttons or checkboxes, each with its label. */
   async function choices(container: Locator): Promise<{ input: Locator; label: string }[]> {
@@ -126,7 +148,7 @@ export function ashbyDriver(page: Page, formTimeoutMs = 15_000, pace: Pace = HUM
     },
 
     async fill(step: FillStep, resumePath: string) {
-      const container = box(step.fieldName);
+      const container = await boxFor(step);
       if ((await container.count()) === 0) return false;
       await container.scrollIntoViewIfNeeded().catch(() => undefined);
       await pause(page, pace);

@@ -432,6 +432,7 @@ async function fillOpenFields(deps: ApplyDeps, app: ApplyJob, filled: FillStep[]
   if (!deps.driver.openFields) return out;
   const open = await deps.driver.openFields(filled.map((s) => s.fieldName)).catch(() => []);
   if (open.length === 0) return out;
+  deps.log(`${app.id}: required fields still empty after the prepared answers: ${open.map((f) => `"${f.label}"`).join(", ")}`);
 
   const ask: OpenField[] = [];
   for (const field of open) {
@@ -464,6 +465,7 @@ async function fillOpenFields(deps: ApplyDeps, app: ApplyJob, filled: FillStep[]
       deps.log(`${app.id}: filled "${field.label}" by AI with ${answer.value.join(", ")} (${answer.reason})`);
     } else out.left.push(field.label);
   }
+  if (out.left.length) deps.log(`${app.id}: left to you: ${out.left.map((l) => `"${l}"`).join(", ")}`);
   return out;
 }
 

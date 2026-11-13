@@ -54,6 +54,19 @@ describe.skipIf(!browser)("ashbyDriver", () => {
     });
   }, 30_000);
 
+  it("finds a field the company replaced since the form was read by its question", async () => {
+    const driver = ashbyDriver(page, 15_000, INSTANT);
+    await driver.open(FIXTURE);
+    // Prepared under an old path ("LinkedIn" got a new field at Oneapp): the box asking the same question is used.
+    const moved = step({ kind: "text", fieldName: "q-old-why", label: "Why us?", value: "Your mission" });
+    expect(await driver.fill(moved, resume)).toBe(true);
+    expect(await page.inputValue("#q-why")).toBe("Your mission");
+    expect(await driver.has!("q-old-why")).toBe(true);
+    expect(await driver.values([moved])).toEqual({ "q-old-why": "Your mission" });
+    // No box asks it: still not there.
+    expect(await driver.fill(step({ kind: "text", fieldName: "q-gone", label: "Favorite color?", value: "Blue" }), resume)).toBe(false);
+  }, 30_000);
+
   it("reports what isn't there instead of guessing", async () => {
     const driver = ashbyDriver(page, 15_000, INSTANT);
     await driver.open(FIXTURE);
