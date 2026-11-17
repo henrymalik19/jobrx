@@ -21,6 +21,7 @@ import {
   classifyByRules,
   emailKindSchema,
   fromAts,
+  sureKind,
   matchEmail,
   MATCH_THRESHOLD,
   companyKey,
@@ -42,7 +43,7 @@ const TELL: Partial<Record<EmailKind, { kind: NotificationKind; title: (app: Tra
   recruiter: { kind: "reply", title: (a) => `${a.company} replied about ${a.title}` },
   rejection: { kind: "rejection", title: (a) => `${a.company} passed on ${a.title}` },
 };
-/** Kinds the rules find that Claude confirms before an application moves: getting one wrong costs the most. */
+/** Kinds the rules alone never move an application with, on a recheck: getting one wrong costs the most. */
 const CONFIRM_KINDS = new Set<EmailKind>(["rejection", "interview"]);
 /** Kinds of email marked read once tied to an application: they need nothing from you. */
 const READ_KINDS = new Set<EmailKind>(["confirmation", "rejection"]);
@@ -93,7 +94,7 @@ export type TrackDeps = {
   userId: string;
   /** The job inbox's password (JOB_INBOX_PASSWORD). */
   password: string;
-  /** Claude, for emails the rules can't sort; without it they're "other". */
+  /** Claude, which sorts every email but codes and job-board alerts; without it the rules guess. */
   call?: StructuredCall;
   readMail?: (config: InboxConfig, since: Date) => Promise<InboxMail[]>;
   moveMail?: (config: InboxConfig, messageId: string, folder: string) => Promise<boolean>;
@@ -218,7 +219,7 @@ async function retryUnsorted(db: Db, userId: string, since: Date, now: Date): Pr
   const rows = unwrap(
     await db
       .from("emails")
-      .select("id, received_at, from_addr, subject, snippet")
+      .select("id, received_at, from_addr, subject, snippet, reason")
       .eq("user_id", userId)
       .eq("classification", "other")
       .is("application_id", null)
@@ -226,6 +227,8 @@ async function retryUnsorted(db: Db, userId: string, since: Date, now: Date): Pr
     "list unsorted emails",
   );
   const placeable = rows.filter((r) => {
+    // Claude's "other" stands: read again, it would only be asked again.
+    if ((r.reason ?? "").startsWith("Claude")) return false;
     const fromAddress = /<([^>]+)>/.exec(r.from_addr ?? "")?.[1] ?? r.from_addr ?? "";
     return classifyByRules({ fromAddress, fromName: "", subject: r.subject ?? "", text: r.snippet ?? "" }) != null;
   });
@@ -317,33 +320,37 @@ export async function runTrackEmail(deps: TrackDeps): Promise<{ counts: TrackCou
       // The digest this app sends to the same inbox.
       if (mail.headers[NOTIFY_HEADER.toLowerCase()]) continue;
       const match = matchEmail(mail, tracked);
-      let kind = classifyByRules(mail);
+      // Only a code or a job board's alert is sorted by its sender or subject alone. Everything else is read by
+      // Claude: a receipt and a no can thank you in the same words, and a misread files mail in the wrong place
+      // and moves the application wrongly.
+      let kind: EmailKind | null = sureKind(mail);
       let reason = kind ? "rules" : "";
-      // A rejection or an interview moves an application (and a rejection leaves the inbox): Claude reads
-      // the whole email to confirm one before it does, since a receipt can word things like either.
-      const confirm = kind != null && CONFIRM_KINDS.has(kind) && match.app != null;
-      if ((!kind && (match.app || fromAts(mail))) || confirm) {
-        const ruled = kind;
+      if (!kind) {
+        const ruled = classifyByRules(mail);
         if (!deps.call) {
-          kind ??= "other";
-          reason = ruled ? "rules (no Claude to confirm)" : "no Claude to sort it";
+          // Without Claude (no key set), the rules' best reading.
+          kind = ruled ?? "other";
+          reason = ruled ? "rules (no Claude to read it)" : "no Claude to sort it";
         } else if (spent >= budget.cap) {
-          // Left unread so a later run sorts it once the month's budget allows.
+          // Left in the inbox so a later run sorts it once the month's budget allows.
           counts.deferred++;
           continue;
         } else {
-          const prompt = buildClassifyPrompt(mail, match.app?.company ?? "a company you applied to");
+          const prompt = buildClassifyPrompt(mail, match.app?.company ?? null);
           const res = await deps.call({ ...prompt, schema: emailKindSchema, maxTokens: 400, effort: "low" });
           const cost = await recordUsage(db, userId, { purpose: "track_email", model: res.model, usage: res.usage });
           spent += cost;
           counts.cost_usd += cost;
-          kind = res.output?.kind ?? (ruled && !CONFIRM_KINDS.has(ruled) ? ruled : "other");
-          reason = [res.output ? `Claude: ${res.output.reason}` : `Claude failed: ${res.error ?? "no answer"}`, ruled && ruled !== kind ? `rules said ${ruled}` : ""]
-            .filter(Boolean)
-            .join("; ");
+          if (!res.output) {
+            // Never a guess: left in the inbox, and read again next run.
+            log(`track_email: couldn't sort "${mail.subject}" (${res.error ?? "no answer"}); trying again next run`);
+            counts.deferred++;
+            continue;
+          }
+          kind = res.output.kind;
+          reason = [`Claude: ${res.output.reason}`, ruled && ruled !== kind ? `rules said ${ruled}` : ""].filter(Boolean).join("; ");
         }
       }
-      kind ??= "other";
 
       const relevant = kind in MOVES;
       const confident = relevant && match.app != null && match.confidence >= MATCH_THRESHOLD;
@@ -650,10 +657,13 @@ async function reconsiderRecent(
     if (r.reason === DISMISSED) continue;
     const fromAddress = /<([^>]+)>/.exec(r.from_addr ?? "")?.[1] ?? r.from_addr ?? "";
     const mail = { fromAddress, fromName: "", subject: r.subject ?? "", text: r.snippet ?? "", receivedAt: new Date(r.received_at) };
-    // An unmatched email the rules can't read keeps how it was sorted (by Claude, say): only its match is new.
-    const kind = classifyByRules(mail) ?? (!r.application_id && r.classification && r.classification in MOVES ? (r.classification as EmailKind) : null);
-    // Only what the rules settle alone; a rejection or an interview is Claude's to confirm.
-    if (!kind || !(kind in MOVES) || CONFIRM_KINDS.has(kind)) continue;
+    // One Claude sorted keeps its kind (the rules never overrule Claude), and so does an unmatched one the rules
+    // can't read: only its match is new.
+    const byClaude = (r.reason ?? "").startsWith("Claude");
+    const kept = !r.application_id && r.classification && r.classification in MOVES ? (r.classification as EmailKind) : null;
+    const kind = byClaude ? kept : (classifyByRules(mail) ?? kept);
+    // A rejection or an interview moves an application only as Claude read it.
+    if (!kind || !(kind in MOVES) || (CONFIRM_KINDS.has(kind) && !byClaude)) continue;
     let app: { id: string; status: string; company: string } | undefined;
     if (r.application_id) {
       // Linked already: corrected only when the rules read it differently now, and it was the rules' call.

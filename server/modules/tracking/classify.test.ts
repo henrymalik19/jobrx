@@ -1,7 +1,7 @@
 // Sorting job-inbox email by rules, and matching it to an application. The
 // wording follows common Greenhouse, Lever and Ashby mail.
 import { describe, expect, it } from "vitest";
-import { classifyByRules, companyKey, matchEmail, senderNames, type TrackedApp } from "./classify";
+import { classifyByRules, companyKey, matchEmail, senderNames, sureKind, type TrackedApp } from "./classify";
 
 const mail = (subject: string, text: string, fromAddress = "no-reply@us.greenhouse-mail.io", fromName = "") => ({ subject, text, fromAddress, fromName });
 
@@ -55,8 +55,53 @@ describe("classifyByRules", () => {
     ]) expect(classifyByRules(mail("Your application", text)), text).toBe("rejection");
   });
 
+  it("reads a 'can't move forward' or a role put on hold as a rejection, over the receipt's thanks", () => {
+    // Nango's (via Ashby).
+    const nango = mail(
+      "Your application at Nango",
+      "Hi Malik,\n\nThank you for your interest in the position Senior+ Full-Stack Engineer.\n\nWe have carefully reviewed your application, and unfortunately, based on the number of other qualified applications, we won't be able to move forward in the recruiting process.\n\nWe are sorry for the undesired outcome and wish you all the best with your search.",
+      "no-reply@ashbyhq.com",
+    );
+    expect(classifyByRules(nango)).toBe("rejection");
+    // LaunchDarkly's, from a recruiter.
+    const launchDarkly = mail(
+      "Update on Backend Software Engineer, SDK role at LaunchDarkly",
+      "Hi Malik,\n\nWhile LaunchDarkly is still growing, I am unfortunately reaching out to inform you that the Backend Software Engineer, SDK role has been put on hold for the time being. Our hope is that we will reopen this role early next year and will be in touch to see if you may still be interested.\n\nThank you for your interest in LaunchDarkly!",
+      "ahalbirt@launchdarkly.com",
+    );
+    expect(classifyByRules(launchDarkly)).toBe("rejection");
+    expect(classifyByRules(mail("Update", "The position you applied for has been placed on hold."))).toBe("rejection");
+    // A receipt saying what happens if they can't move forward is still a receipt.
+    expect(classifyByRules(mail("Thanks for applying", "We have received your application. Unfortunately, if we can't move forward we may not be able to reply to everyone."))).toBe("confirmation");
+  });
+
+  it("sorts a forwarded email by who sent it, not by you", () => {
+    const stord = mail(
+      "Fwd: Atlanta / Stord / Senior & Staff Engineers",
+      "---------- Forwarded message ---------\nFrom: Silviu Bacauanu <inmail-hit-reply@linkedin.com>\nDate: Thu, Nov 12, 2026 at 2:56 PM\nSubject: Atlanta / Stord / Senior & Staff Engineers\nTo: Malik Henry <ada@gmail.test>\n\nHey Malik, Silviu here; I lead engineering hiring at Stord. Could we set up a quick chat this week?",
+      "ada@gmail.test",
+      "Malik Henry",
+    );
+    expect(classifyByRules(stord)).toBe("job_alert");
+    // A forwarded receipt is still a receipt.
+    expect(classifyByRules(mail("Fwd: Thank you for applying to Acme", "-----Original Message-----\nFrom: Acme Hiring <no-reply@ashbyhq.com>\n\nWe have received your application.", "ada@gmail.test"))).toBe("confirmation");
+  });
+
   it("leaves what it can't tell to Claude", () => {
     expect(classifyByRules(mail("Quick question about your background", "Hi Malik, are you open to relocating to Denver?", "jane@acme.com"))).toBeNull();
+  });
+});
+
+describe("sureKind", () => {
+  it("settles only codes and job boards' alerts by sender or subject; everything else is Claude's", () => {
+    expect(sureKind(mail("Security code for your application to Acme", "aB3dE9fG"))).toBe("code");
+    expect(sureKind(mail("30+ new jobs for you", "…", "jobalerts-noreply@linkedin.com"))).toBe("job_alert");
+    // A recruiter's InMail you forwarded from another inbox is still LinkedIn's.
+    expect(sureKind(mail("Fwd: Atlanta / Stord", "---------- Forwarded message ---------\nFrom: Silviu <inmail-hit-reply@linkedin.com>\n\nHey", "ada@gmail.test"))).toBe("job_alert");
+    // LinkedIn's mail about an application sent through it, and anything worded like a receipt or a no.
+    expect(sureKind(mail("Your application to Staff Engineer at Acme", "Your application was sent to Acme.", "jobs-noreply@linkedin.com"))).toBeNull();
+    expect(sureKind(mail("Thank you for applying to Acme", "We have received your application."))).toBeNull();
+    expect(sureKind(mail("Your application at Nango", "Unfortunately, we won't be able to move forward.", "no-reply@ashbyhq.com"))).toBeNull();
   });
 });
 

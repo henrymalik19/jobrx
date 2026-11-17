@@ -286,4 +286,36 @@ describe("rechecking recent emails", () => {
     expect(fixed).toEqual({ classification: "confirmation", application_id: apps.amp });
     expect(moved).toEqual(expect.arrayContaining([`<${tag}-misread@mail.test> -> ${RECEIVED_FOLDER}`, `<${tag}-amp@mail.test> -> ${RECEIVED_FOLDER}`]));
   });
+
+  it("has Claude read every email but codes and job alerts, and leaves one it can't sort in the inbox", async () => {
+    await addApp("nope", `Nopeco ${tag}`, "Full-Stack Engineer", "submitted");
+    await addApp("flaky", `Flakyco ${tag}`, "Data Engineer", "submitted");
+    const fresh = [
+      // The rules read a receipt: it thanks you for your interest. Claude reads the no.
+      mail("nope", `Your application at Nopeco ${tag}`, `Thank you for your interest in Nopeco ${tag}. Unfortunately the team is going in another direction.`),
+      mail("flaky", `Thank you for applying to Flakyco ${tag}`, "We have received your application."),
+      mail("alert2", "Senior Engineer at Acme and 9 more jobs", "Jobs you may be interested in", { fromAddress: "jobalerts-noreply@linkedin.com" }),
+    ];
+    const asked: string[] = [];
+    const picky: StructuredCall = async (input) => {
+      asked.push(input.user);
+      if (input.user.includes("Flakyco")) return { output: null, error: "overloaded", model: "claude-haiku-5-5", usage: { input_tokens: 0, output_tokens: 0 } } as never;
+      return call(input);
+    };
+    moved.length = 0;
+    const { counts } = await runTrackEmail({ ...deps(), call: picky, readMail: async () => fresh });
+    expect(await status("nope")).toBe("rejected");
+    expect(moved).toContain(`<${tag}-nope@mail.test> -> ${REJECTIONS_FOLDER}`);
+    const { data: nope } = await db.from("emails").select("reason").eq("message_id", `<${tag}-nope@mail.test>`).single();
+    expect(nope!.reason).toMatch(/^Claude: reads as a rejection; rules said confirmation/);
+    // Claude failed: not guessed, not saved, not filed; tried again next run.
+    expect(counts.deferred).toBe(1);
+    expect(await status("flaky")).toBe("submitted");
+    const { data: flaky } = await db.from("emails").select("id").eq("message_id", `<${tag}-flaky@mail.test>`);
+    expect(flaky).toEqual([]);
+    expect(moved.some((m) => m.includes("flaky"))).toBe(false);
+    // The job board's alert is filed by its sender, without asking Claude.
+    expect(asked.some((u) => u.includes("9 more jobs"))).toBe(false);
+    expect(moved).toContain(`<${tag}-alert2@mail.test> -> ${ALERTS_FOLDER}`);
+  });
 });
