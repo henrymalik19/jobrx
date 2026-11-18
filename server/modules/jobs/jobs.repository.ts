@@ -117,19 +117,26 @@ export type MatchableJobRow = Pick<
   | "description_md" | "posted_at" | "first_seen_at"
 >;
 
+const MATCHABLE_COLUMNS =
+  "id, title, company_name, location, remote_type, salary_min, salary_max, salary_currency, description_md, posted_at, first_seen_at";
+
 /**
- * Open jobs from active companies the user follows (paused boards' jobs are
- * left out), newest first, paged past PostgREST's 1,000-row limit.
+ * Open jobs from active companies the user follows (paused boards' jobs are left out), newest first, paged past
+ * PostgREST's 1,000-row limit. Only the ids are listed for every job; the full rows (descriptions included) are
+ * read just for the ones `wanted` keeps, since match runs every few minutes and has already scored nearly all of
+ * them.
  */
-export async function listOpenJobsForMatching(db: Db, userId: string): Promise<MatchableJobRow[]> {
-  const all: MatchableJobRow[] = [];
+export async function listOpenJobsForMatching(
+  db: Db,
+  userId: string,
+  wanted: (jobId: string) => boolean = () => true,
+): Promise<MatchableJobRow[]> {
+  const ids: string[] = [];
   for (let from = 0; ; from += PAGE) {
     const rows = unwrap(
       await db
         .from("jobs")
-        .select(
-          "id, title, company_name, location, remote_type, salary_min, salary_max, salary_currency, description_md, posted_at, first_seen_at, companies!inner(active, user_companies!inner(user_id))",
-        )
+        .select("id, companies!inner(active, user_companies!inner(user_id))")
         .is("closed_at", null)
         .eq("companies.active", true)
         .eq("companies.user_companies.user_id", userId)
@@ -138,9 +145,16 @@ export async function listOpenJobsForMatching(db: Db, userId: string): Promise<M
         .range(from, from + PAGE - 1),
       "list jobs for matching",
     );
-    all.push(...rows.map(({ companies, ...job }) => job));
-    if (rows.length < PAGE) return all;
+    ids.push(...rows.map((r) => r.id).filter(wanted));
+    if (rows.length < PAGE) break;
   }
+  const byId = new Map<string, MatchableJobRow>();
+  for (let i = 0; i < ids.length; i += 200) {
+    const rows = unwrap(await db.from("jobs").select(MATCHABLE_COLUMNS).in("id", ids.slice(i, i + 200)), "read jobs for matching");
+    for (const row of rows) byId.set(row.id, row);
+  }
+  // Newest first, as listed (a job closed in between is dropped).
+  return ids.flatMap((id) => byId.get(id) ?? []);
 }
 
 /** The fields needed to re-check a saved job against the discovery filters. */

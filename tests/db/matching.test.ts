@@ -3,6 +3,7 @@
 //   - invalid LLM output is retried once, then the job is marked failed
 //   - one match per job: re-running and changing criteria don't rescore
 //   - an active scoring lesson is in the prompt, an inactive one isn't
+//   - the job list reads full rows only for jobs still to score
 //   - usage is recorded per call, and the monthly cap defers scoring
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, inject, it } from "vitest";
@@ -10,7 +11,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { Db } from "@/server/db/types";
 import type { StructuredCall } from "@/server/integrations/anthropic/claude";
 import { excludeCompany, getMatchCriteria, saveMatchCriteria } from "@/server/modules/criteria/criteria.service";
-import { parseJobFilters } from "@/server/modules/jobs/jobs.service";
+import { listOpenJobsForMatching, parseJobFilters } from "@/server/modules/jobs/jobs.service";
 import { browseJobs, runMatch } from "@/server/modules/matching/matching.service";
 import type {} from "./setup";
 import { OPEN_FILTERS, setUserSettings, testUser } from "./users";
@@ -161,6 +162,18 @@ describe("matching", () => {
     expect((await getMatchCriteria(db, ownerId)).excluded_companies).toContain(`Someone Else ${tag}`);
     expect((await match()).counts.candidates).toBe(0);
     expect((await matchRows()).length).toBe(4);
+  });
+
+  it("reads full rows (descriptions) only for the jobs still wanted, newest first", async () => {
+    const mine = new Set(Object.values(jobIds));
+    const all = await listOpenJobsForMatching(db, ownerId, (id) => mine.has(id));
+    expect(all.length).toBeGreaterThan(1);
+    expect(all.every((j) => mine.has(j.id) && "description_md" in j)).toBe(true);
+    const seen = all.map((j) => j.first_seen_at);
+    expect(seen).toEqual([...seen].sort().reverse());
+    const one = all[1].id;
+    expect((await listOpenJobsForMatching(db, ownerId, (id) => id === one)).map((j) => j.id)).toEqual([one]);
+    expect(await listOpenJobsForMatching(db, ownerId, () => false)).toEqual([]);
   });
 
   it("adds a skipped job's company to the excluded list once", async () => {

@@ -117,20 +117,20 @@ export async function runMatch(deps: MatchDeps): Promise<{ runId: string; counts
   const counts: MatchCounts = { candidates: 0, filtered: 0, scored: 0, failed: 0, deferred: 0, cost_usd: 0 };
 
   try {
-    const [criteria, jobs, facts, lessons, budget, titleFilter, jobFilter] = await Promise.all([
+    // A failed score gets another try (up to MAX_SCORE_ATTEMPTS), so it counts as not done yet.
+    const [done, retry] = await Promise.all([listMatchedJobIds(db, userId), listRetryableFailures(db, userId)]);
+    for (const jobId of retry.keys()) done.delete(jobId);
+    const only = deps.onlyJobIds ? new Set(deps.onlyJobIds) : null;
+    const [criteria, todo, facts, lessons, budget, titleFilter, jobFilter] = await Promise.all([
       getMatchCriteria(db, userId),
-      listOpenJobsForMatching(db, userId),
+      // Full rows only for the jobs still to score.
+      listOpenJobsForMatching(db, userId, (id) => !done.has(id) && (!only || only.has(id))),
       getProfileLines(db, userId),
       lessonsFor(db, userId, "scoring"),
       getMonthlySpend(db, userId, now()),
       getTitleFilter(db, userId),
       getJobFilter(db, userId),
     ]);
-    // A failed score gets another try (up to MAX_SCORE_ATTEMPTS), so it counts as not done yet.
-    const [done, retry] = await Promise.all([listMatchedJobIds(db, userId), listRetryableFailures(db, userId)]);
-    for (const jobId of retry.keys()) done.delete(jobId);
-    const only = deps.onlyJobIds ? new Set(deps.onlyJobIds) : null;
-    const todo = jobs.filter((j) => !done.has(j.id) && (!only || only.has(j.id)));
     counts.candidates = todo.length;
 
     const context = {
