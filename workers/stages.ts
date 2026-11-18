@@ -45,15 +45,22 @@ export const trackEmail: Stage = {
     }),
 };
 
+/** Who the digest comes from through Resend (send.jobrx.ai is verified there). */
+const DIGEST_FROM = "Jobrx <no-reply@send.jobrx.ai>";
+
 /** Notify (the digest email). */
 export const notify: Stage = {
   name: "notify",
   needs: ["RESEND_API_KEY", "JOB_INBOX_PASSWORD"],
-  /** Emails the user's digest: through Resend when RESEND_API_KEY is set (Railway blocks SMTP), else SMTP. */
+  /**
+   * Emails the user's digest: through Resend when RESEND_API_KEY is set (Railway blocks SMTP), from Jobrx's own
+   * address (NOTIFY_FROM) so it works for every user's inbox; else SMTP, from the job inbox.
+   */
   run: (db, userId) => {
     const key = process.env.RESEND_API_KEY;
     const createSender = key ? () => createResendSender(key) : undefined;
-    return runNotify({ db, userId, password: process.env.JOB_INBOX_PASSWORD ?? "", createSender, log });
+    const from = key ? process.env.NOTIFY_FROM || DIGEST_FROM : undefined;
+    return runNotify({ db, userId, password: process.env.JOB_INBOX_PASSWORD ?? "", createSender, from, log });
   },
 };
 

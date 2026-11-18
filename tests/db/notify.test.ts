@@ -2,6 +2,7 @@
 //   - a needs_input application is emailed with its blocking question, from and to the job inbox
 //   - the next run sends nothing (already notified in that status)
 //   - a second email inside the minimum interval is held, then sent once the interval passes
+//   - with a worker default sender (Resend), the email comes from it, still to the job inbox
 //   - quiet hours hold the email
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
@@ -110,6 +111,14 @@ describe("notify", () => {
     const later = await notify(new Date("2030-01-15T17:00:00Z"));
     expect(later.counts).toMatchObject({ due: 1, sent: 1 });
     expect(sent.at(-1)!.email.subject).toBe("[Jobrx] 1 can't fill automatically");
+  });
+
+  it("sends from the worker's address (Jobrx's, through Resend) when the user set none", async () => {
+    await addApplication("interview", "interviewing");
+    const { counts } = await runNotify({ db, userId, password: "", createSender, from: "Jobrx <no-reply@jobrx.test>", now: new Date("2030-01-15T18:00:00Z") });
+    expect(counts).toMatchObject({ sent: 1 });
+    expect(sent.at(-1)!.email.from).toBe("Jobrx <no-reply@jobrx.test>");
+    expect(sent.at(-1)!.email.to).toBe("jobs@example.test");
   });
 
   it("holds email during quiet hours", async () => {

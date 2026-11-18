@@ -19,8 +19,9 @@ const inboxSchema = z.object({
 });
 
 /**
- * `user_settings.notifications`. `to: null` sends to the job inbox itself; `from: null`
- * sends from it. Resend needs `from` on a domain verified there (e.g. send.jobrx.ai).
+ * `user_settings.notifications`. `to: null` sends to the job inbox itself; `from: null` sends from the
+ * worker's default (Jobrx's own address through Resend; the job inbox over SMTP). Resend needs `from` on a
+ * domain verified there.
  */
 const notifySchema = z.object({
   from: z.string().min(1).nullable().default(null),
@@ -40,6 +41,8 @@ export type NotifyDeps = {
   password: string;
   /** Builds the sender (default SMTP); workers pass Resend, tests a fake. */
   createSender?: (config: SmtpConfig) => SendEmail;
+  /** Who the digest comes from when the user set no `from` (default: the job inbox, which SMTP signs in as). */
+  from?: string;
   now?: Date;
   log?: (line: string) => void;
 };
@@ -110,7 +113,7 @@ export async function runNotify(deps: NotifyDeps): Promise<{ counts: Record<stri
 
     const digest = buildDigest(items, appUrl);
     const send = createSender({ host: inbox.smtp_host, port: inbox.smtp_port, user: inbox.address, password: deps.password });
-    await send({ from: settings.from ?? `Jobrx <${inbox.address}>`, to: settings.to ?? inbox.address, ...digest, headers: { [NOTIFY_HEADER]: "notify" } });
+    await send({ from: settings.from ?? deps.from ?? `Jobrx <${inbox.address}>`, to: settings.to ?? inbox.address, ...digest, headers: { [NOTIFY_HEADER]: "notify" } });
     await markNotified(db, items);
     counts.sent = 1;
     counts.applications = items.length;
