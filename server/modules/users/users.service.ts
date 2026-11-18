@@ -6,9 +6,12 @@ import { unwrap } from "@/server/core/errors";
 /** A user workers run for. */
 export type User = { id: string; role: string };
 
-/** Every user, owner first. Service role only. */
+/** Every user whose access wasn't removed, owner first. Service role only. */
 export async function listUsers(db: Db): Promise<User[]> {
-  const rows = unwrap(await db.from("users").select("id, role").order("role", { ascending: false }).order("created_at"), "list users");
+  const rows = unwrap(
+    await db.from("users").select("id, role").is("removed_at", null).order("role", { ascending: false }).order("created_at"),
+    "list users",
+  );
   return rows;
 }
 

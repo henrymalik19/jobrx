@@ -250,10 +250,10 @@ otp_expiry = 3600
 subject = "Reset your Jobrx password"
 content_path = "./supabase/templates/recovery.html"
 
-# Uncomment to customize email template
-# [auth.email.template.invite]
-# subject = "You have been invited"
-# content_path = "./supabase/templates/invite.html"
+# The invite email (Admin > Users > Send invite), as Jobrx; the dashboard has the same for production.
+[auth.email.template.invite]
+subject = "You're invited to Jobrx"
+content_path = "./supabase/templates/invite.html"
 
 # Uncomment to customize notification email template
 # [auth.email.notification.password_changed]

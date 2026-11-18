@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, CalendarCheck, CircleAlert, CircleCheck, Inbox, Mail, MessageSquare, MousePointerClick, X } from "lucide-react";
+import { Bell, CalendarCheck, CircleAlert, CircleCheck, Inbox, Mail, MessageSquare, MousePointerClick, UserPlus, X } from "lucide-react";
 import Link from "next/link";
 import { useState, useTransition } from "react";
 import type { Notification, NotificationKind } from "@/server/modules/notifications/in-app";
@@ -17,6 +17,7 @@ const LOOK: Record<NotificationKind, { icon: typeof Bell; className: string }> =
   runner_stuck: { icon: CircleAlert, className: "text-destructive" },
   submitted: { icon: CircleCheck, className: "text-success" },
   prepared: { icon: Inbox, className: "text-info" },
+  access_request: { icon: UserPlus, className: "text-info" },
 };
 
 /** How long ago, short: "now", "5m", "3h", "2d", then the date. */

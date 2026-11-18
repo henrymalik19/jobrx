@@ -8,10 +8,10 @@ import { createResendSender } from "@/server/integrations/email/resend";
 import { runNotify } from "@/server/modules/notifications/notifications.service";
 import { runPrepare } from "@/server/modules/prepare/prepare.service";
 import { runTrackEmail } from "@/server/modules/tracking/tracking.service";
-import { listUsers } from "@/server/modules/users/users.service";
+import { listUsers, type User } from "@/server/modules/users/users.service";
 
 /** One stage: what it does for one user, and the variables it needs (any one of them). */
-type Stage = { name: string; needs?: string[]; run: (db: Db, userId: string) => Promise<{ counts: unknown }> };
+type Stage = { name: string; needs?: string[]; run: (db: Db, userId: string, user: User) => Promise<{ counts: unknown }> };
 
 const log = (line: string) => console.log(line);
 
@@ -34,15 +34,21 @@ export const prepare = (limit?: number): Stage => ({
 export const trackEmail: Stage = {
   name: "track_email",
   needs: ["JOB_INBOX_PASSWORD"],
-  /** Reads the user's job inbox and moves applications by what arrived. */
-  run: (db, userId) =>
-    runTrackEmail({
+  /**
+   * Reads the user's job inbox and moves applications by what arrived. JOB_INBOX_PASSWORD is the owner's
+   * mailbox's, so only the owner's inbox is read: a member could otherwise point their inbox setting at the
+   * owner's address and read the owner's mail. (Members get tracking with an inbox password of their own.)
+   */
+  run: async (db, userId, user) => {
+    if (user.role !== "owner") return { counts: { skipped: "no inbox password of their own yet" } };
+    return runTrackEmail({
       db,
       userId,
       password: process.env.JOB_INBOX_PASSWORD ?? "",
       call: process.env.ANTHROPIC_API_KEY ? createClaudeCaller() : undefined,
       log,
-    }),
+    });
+  },
 };
 
 /** Who the digest comes from through Resend (send.jobrx.ai is verified there). */
@@ -79,7 +85,7 @@ export async function runStages(db: Db, stages: Stage[]): Promise<boolean> {
     }
     for (const user of users) {
       try {
-        const { counts } = await stage.run(db, user.id);
+        const { counts } = await stage.run(db, user.id, user);
         console.log(JSON.stringify({ stage: stage.name, user: user.id, ok: true, counts }));
       } catch (err) {
         ok = false;

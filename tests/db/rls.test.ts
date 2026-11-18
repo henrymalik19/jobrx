@@ -17,7 +17,7 @@ const MISSING = ["PGRST205", "42P01"];
 
 // Every table and view in the public schema.
 const TABLES = [
-  "application_events", "application_evidence_items", "application_questions", "application_status_transitions",
+  "access_requests", "application_events", "application_evidence_items", "application_questions", "application_status_transitions",
   "applications", "certifications", "companies", "educations", "emails", "employment_responsibilities",
   "employment_skills", "employments", "jobs", "lessons", "llm_calls", "match_criteria", "matches", 
   "profile_skills", "profiles", "public_applications", "push_subscriptions", "question_aliases", "question_answers", "questions",
@@ -157,9 +157,12 @@ describe("owner", () => {
     expect(events![0]).toMatchObject({ from_status: null, to_status: "queued", cause: "system:create" });
   });
 
-  it("cannot read the users table", async () => {
-    const { data } = await owner.from("users").select("*");
-    expect(data ?? []).toEqual([]);
+  it("reads only its own row of the users table, and can't change it", async () => {
+    const { data } = await owner.from("users").select("id, role");
+    expect(data).toEqual([{ id: userIds[0], role: "owner" }]);
+    await owner.from("users").update({ role: "member" }).eq("id", userIds[0]);
+    const { data: after } = await service.from("users").select("role").eq("id", userIds[0]).single();
+    expect(after?.role).toBe("owner");
   });
 });
 

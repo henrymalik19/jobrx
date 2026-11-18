@@ -30,22 +30,23 @@ const SECTIONS = [
 ] as const;
 
 /**
- * Sidebar navigation: the user's workspace (/app) and app administration
+ * Sidebar navigation: the user's workspace (/app) and, for the owner, app administration
  * (/admin). Highlights the current page. Horizontal on small screens.
  */
-export function NavLinks() {
-  return <NavList pathname={usePathname()} />;
+export function NavLinks({ admin }: { admin: boolean }) {
+  return <NavList pathname={usePathname()} admin={admin} />;
 }
 
 /**
  * The nav itself, given the current path ("" highlights nothing, e.g. as a Suspense fallback).
  *
+ * @param admin - Show Admin (the owner only).
  * @param vertical - Stacked with section titles at every width (the phone menu).
  */
-export function NavList({ pathname, vertical = false }: { pathname: string; vertical?: boolean }) {
+export function NavList({ pathname, admin, vertical = false }: { pathname: string; admin: boolean; vertical?: boolean }) {
   return (
     <nav className={cn("flex flex-col gap-5", !vertical && "hidden md:flex")}>
-      {SECTIONS.map((section) => (
+      {SECTIONS.filter((section) => admin || section.title !== "Admin").map((section) => (
         <div key={section.title} className="flex flex-col gap-1">
           <div className="px-3 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
             {section.title}

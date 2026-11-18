@@ -26,6 +26,28 @@ async function Account() {
   );
 }
 
+/** Whether the signed-in user is the owner (who sees Admin). */
+async function signedInIsAdmin() {
+  const { db, owner } = await ownerContext();
+  return isAdmin(db, owner.id);
+}
+
+/** The sidebar's pages: Admin only for the owner. */
+async function Nav() {
+  return <NavLinks admin={await signedInIsAdmin()} />;
+}
+
+/** The phone menu, with the account below the pages. */
+async function PhoneMenu() {
+  return (
+    <MobileMenu admin={await signedInIsAdmin()}>
+      <Suspense fallback={null}>
+        <Account />
+      </Suspense>
+    </MobileMenu>
+  );
+}
+
 /** The app's version, for admins only (Settings shows it with the apply runner's to everyone). */
 async function VersionTag() {
   const { db, owner } = await ownerContext();
@@ -54,16 +76,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </div>
         {/* Phones: a Menu button with every page and the account. */}
         <Suspense fallback={null}>
-          <MobileMenu>
-            <Suspense fallback={null}>
-              <Account />
-            </Suspense>
-          </MobileMenu>
+          <PhoneMenu />
         </Suspense>
         <div className="hidden md:mt-6 md:block md:flex-1">
           {/* usePathname() needs a Suspense boundary on dynamic routes (Cache Components). */}
-          <Suspense fallback={<NavList pathname="" />}>
-            <NavLinks />
+          <Suspense fallback={<NavList pathname="" admin={false} />}>
+            <Nav />
           </Suspense>
         </div>
         <div className="hidden md:block md:px-3">

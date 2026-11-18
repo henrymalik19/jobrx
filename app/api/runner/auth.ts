@@ -3,6 +3,7 @@
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/server/db/database.types";
 import type { Db } from "@/server/db/types";
+import { isActiveMember } from "@/server/auth/session";
 import { serverEnv } from "@/shared/env";
 
 /** The signed-in runner's database client and user, or a 401 response. */
@@ -16,5 +17,6 @@ export async function runnerUser(request: Request): Promise<{ db: Db; userId: st
   }) as unknown as Db;
   const { data, error } = await db.auth.getUser(token);
   if (error || !data.user) return Response.json({ error: "sign in first" }, { status: 401 });
+  if (!(await isActiveMember(db))) return Response.json({ error: "this account doesn't have access" }, { status: 403 });
   return { db, userId: data.user.id };
 }

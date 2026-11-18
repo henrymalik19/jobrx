@@ -1,5 +1,5 @@
 // Starts the app for the end-to-end tests (Playwright's webServer runs this): `next dev` on its own port and
-// build folder, against the local Supabase stack, letting in only the test user (global-setup.ts makes it).
+// build folder, against the local Supabase stack, as the test user (global-setup.ts makes it, a member).
 // Claude is pointed at a closed port, so nothing the tests click spends money or leaves the machine.
 import { spawn } from "node:child_process";
 import webpush from "web-push";

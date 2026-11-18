@@ -8,14 +8,14 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-/** Admin sign-in page. */
+/** Sign-in page for everyone with access (the owner and invited members). */
 export default function LoginPage() {
   return (
     <main className="flex min-h-screen items-center justify-center px-4">
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle><Logo /></CardTitle>
-          <CardDescription>Sign in with the owner account.</CardDescription>
+          <CardDescription>Sign in to your Jobrx workspace.</CardDescription>
         </CardHeader>
         <CardContent>
           <LoginForm />

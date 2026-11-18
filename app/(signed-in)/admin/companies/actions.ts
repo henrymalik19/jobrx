@@ -1,7 +1,7 @@
 "use server";
 
 import { refresh } from "next/cache";
-import { ownerContext } from "@/server/auth/require-owner";
+import { requireAdmin } from "@/server/auth/require-owner";
 import { ValidationError } from "@/server/core/errors";
 import { clearLimit } from "@/server/modules/companies/apply-limits";
 import {
@@ -31,7 +31,7 @@ function toFormError(err: unknown, values?: CompanyValues): FormState {
  * board once) or "add". Values are echoed back unless the add succeeded.
  */
 export async function companyFormAction(_prev: FormState, formData: FormData): Promise<FormState> {
-  const { db, owner } = await ownerContext();
+  const { db, owner } = await requireAdmin();
   const values: CompanyValues = {
     name: String(formData.get("name") ?? ""),
     ats: String(formData.get("ats") ?? ""),
@@ -60,7 +60,7 @@ export type FindState = { query?: string; name?: string; found?: FoundBoard[]; e
 
 /** Finds a company's job board from its name or a board URL. */
 export async function findCompanyAction(_prev: FindState, formData: FormData): Promise<FindState> {
-  await ownerContext();
+  await requireAdmin();
   const query = String(formData.get("query") ?? "").trim().slice(0, 300);
   if (!query) return { error: "Enter a company name or a job-board URL." };
   const fromUrl = parseBoardUrl(query);
@@ -80,14 +80,14 @@ export async function findCompanyAction(_prev: FindState, formData: FormData): P
 
 /** Clear button under a company's limit: it no longer has one, or the date is wrong. */
 export async function clearLimitAction(formData: FormData) {
-  const { db, owner } = await ownerContext();
+  const { db, owner } = await requireAdmin();
   await clearLimit(db, owner.id, String(formData.get("id")));
   refresh();
 }
 
 /** Pause/Resume button action for one company row. */
 export async function toggleCompanyAction(formData: FormData) {
-  const { db } = await ownerContext();
+  const { db } = await requireAdmin();
   await setCompanyActive(db, String(formData.get("id")), formData.get("active") === "true");
   refresh();
 }

@@ -1,6 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { isOwnerId } from "@/server/auth/owner";
 import { createServiceClient } from "@/server/db/service-client";
 import { isPublicPageLive } from "@/server/modules/public-page/public-page.service";
 import { serverEnv } from "@/shared/env";
@@ -19,7 +18,7 @@ async function publicPage(handle: string): Promise<NextResponse> {
 
 /**
  * Refreshes the Supabase session cookie and does an optimistic redirect for
- * /app and /admin. Real authorization happens in `ownerContext()` and in RLS.
+ * /app and /admin. Real authorization happens in `ownerContext()`, `requireAdmin()` and in RLS.
  */
 export async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
@@ -43,9 +42,9 @@ export async function proxy(request: NextRequest) {
 
   const { data } = await supabase.auth.getUser();
   const isLogin = path === "/login";
-  const isOwner = isOwnerId(data.user?.id, env.OWNER_USER_ID);
 
-  if (!isLogin && !isOwner) {
+  // Optimistic: anyone signed in gets through; ownerContext() checks they're a member, requireAdmin() the owner.
+  if (!isLogin && !data.user) {
     if (path.startsWith("/api/")) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }

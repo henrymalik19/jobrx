@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { signIn, type LoginState } from "./actions";
 
-/** Email/password form for the owner's sign-in. */
+/** Email/password sign-in, with links to reset a password or ask to join. */
 export function LoginForm() {
   const [state, action, pending] = useActionState<LoginState, FormData>(signIn, {});
   return (
@@ -22,7 +22,10 @@ export function LoginForm() {
       </div>
       {state.error && <p role="alert" className="text-sm text-destructive">{state.error}</p>}
       <Button type="submit" disabled={pending}>{pending ? "Signing in…" : "Sign in"}</Button>
-      <Link href="/login/forgot" className="text-center text-sm text-muted-foreground underline">Forgot password?</Link>
+      <div className="flex justify-between text-sm text-muted-foreground">
+        <Link href="/login/forgot" className="underline">Forgot password?</Link>
+        <Link href="/request-access" className="underline">Request access</Link>
+      </div>
     </form>
   );
 }

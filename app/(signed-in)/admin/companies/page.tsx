@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ownerContext } from "@/server/auth/require-owner";
+import { requireAdmin } from "@/server/auth/require-owner";
 import { loadDiscoveryHealth } from "@/server/modules/runs/runs.service";
 import { listCompanyLimits, type CompanyLimit } from "@/server/modules/companies/apply-limits";
 import { ago } from "@/shared/format";
@@ -37,7 +37,7 @@ function LimitNote({ companyId, limit }: { companyId: string; limit: CompanyLimi
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
 async function Companies({ searchParams }: { searchParams: SearchParams }) {
-  const { db, owner } = await ownerContext();
+  const { db, owner } = await requireAdmin();
   const now = new Date();
   const [{ boards }, params, limits] = await Promise.all([loadDiscoveryHealth(db, owner.id, now), searchParams, listCompanyLimits(db, owner.id, now)]);
   const active = boards.filter((b) => b.active).length;

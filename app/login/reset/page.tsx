@@ -10,12 +10,12 @@ export const metadata: Metadata = {
 };
 
 /** Whose password this sets; signed-out visitors are sent to /login. */
-async function ForOwner() {
+async function ForUser() {
   const owner = await requireOwner();
   return <>For {owner.email}.</>;
 }
 
-/** Sets a new password; reached from a reset link, which signs the owner in. */
+/** Sets a new password; reached from a reset link, which signs you in. */
 export default function ResetPage() {
   return (
     <main className="flex min-h-screen items-center justify-center px-4">
@@ -24,7 +24,7 @@ export default function ResetPage() {
           <CardTitle>New password</CardTitle>
           <CardDescription>
             <Suspense>
-              <ForOwner />
+              <ForUser />
             </Suspense>
           </CardDescription>
         </CardHeader>

@@ -6,8 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { setPassword, type ResetState } from "./actions";
 
-/** New password, typed twice. */
-export function ResetForm() {
+/** New password, typed twice (a reset, or a new member choosing theirs). */
+export function ResetForm({ submitLabel = "Set password" }: { submitLabel?: string }) {
   const [state, action, pending] = useActionState<ResetState, FormData>(setPassword, {});
   return (
     <form action={action} className="flex flex-col gap-4">
@@ -20,7 +20,7 @@ export function ResetForm() {
         <Input id="confirm" name="confirm" type="password" autoComplete="new-password" required />
       </div>
       {state.error && <p role="alert" className="text-sm text-destructive">{state.error}</p>}
-      <Button type="submit" disabled={pending}>{pending ? "Saving…" : "Set password"}</Button>
+      <Button type="submit" disabled={pending}>{pending ? "Saving…" : submitLabel}</Button>
     </form>
   );
 }

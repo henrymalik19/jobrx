@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { updateOwnerPassword } from "@/server/auth/session";
+import { updatePassword } from "@/server/auth/session";
 
 /** New-password form state. */
 export type ResetState = { error?: string };
@@ -15,7 +15,7 @@ const input = z
 export async function setPassword(_prev: ResetState, formData: FormData): Promise<ResetState> {
   const parsed = input.safeParse({ password: formData.get("password"), confirm: formData.get("confirm") });
   if (!parsed.success) return { error: parsed.error.issues[0].message };
-  const result = await updateOwnerPassword(parsed.data.password);
+  const result = await updatePassword(parsed.data.password);
   if (!result.ok) return { error: result.error };
   redirect("/app");
 }

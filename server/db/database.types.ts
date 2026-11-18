@@ -5,7 +5,21 @@ export type Database = {
   
   "public": {
           Tables: {
-            "app_settings": {
+            "access_requests": {
+                  Row: {
+                    "created_at": string,"decided_at": string | null,"email": string,"id": string,"name": string,"note": string | null,"status": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"decided_at"?: string | null,"email": string,"id"?: string,"name": string,"note"?: string | null,"status"?: string
+                  }
+                  Update: {
+                    "created_at"?: string,"decided_at"?: string | null,"email"?: string,"id"?: string,"name"?: string,"note"?: string | null,"status"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"app_settings": {
                   Row: {
                     "created_at": string,"key": string,"updated_at": string,"value": NonNullable<Json>
                   }
@@ -783,14 +797,14 @@ isOneToOne: false
                   ]
                 },"users": {
                   Row: {
-                    "created_at": string,"id": string,"role": string,"updated_at": string
+                    "created_at": string,"id": string,"removed_at": string | null,"role": string,"updated_at": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "created_at"?: string,"id": string,"role"?: string,"updated_at"?: string
+                    "created_at"?: string,"id": string,"removed_at"?: string | null,"role"?: string,"updated_at"?: string
                   }
                   Update: {
-                    "created_at"?: string,"id"?: string,"role"?: string,"updated_at"?: string
+                    "created_at"?: string,"id"?: string,"removed_at"?: string | null,"role"?: string,"updated_at"?: string
                   }
                   Relationships: [
                     

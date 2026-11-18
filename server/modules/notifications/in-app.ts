@@ -15,6 +15,7 @@ export const NOTIFICATION_KINDS = [
   "runner_stuck", // the runner handed an application back
   "submitted", // the runner submitted an application
   "prepared", // new applications to review or answer
+  "access_request", // someone asked to join (the owner's)
 ] as const;
 
 /** One kind of notification. */

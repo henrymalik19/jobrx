@@ -2,8 +2,8 @@ import "server-only";
 import type { Db } from "@/server/db/types";
 
 /**
- * Whether a user runs the app (role "owner"): what only they see, like the version in the sidebar. Everyone
- * else is a member.
+ * Whether a user runs the app (role "owner"): what only they see, like Admin and the version in the sidebar.
+ * Everyone else is a member.
  *
  * @param db - The user's own client (a user reads their own row).
  */
