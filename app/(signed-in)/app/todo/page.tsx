@@ -114,6 +114,8 @@ function UnmatchedEmails({ emails, unsorted, apps, now }: { emails: UnmatchedEma
         </CardDescription>
       </CardHeader>
       <CardContent className={scrollingTable.content}>
+        {/* One scroller for both lists: the first one isn't squeezed, so it would leave the second none of the card. */}
+        <div className="max-h-[70vh] min-h-0 flex-1 overflow-auto md:max-h-none">
         {unsorted.length > 0 && (
           <div className="mb-6 flex flex-col gap-2">
             <h2 className="text-sm font-medium">Couldn&apos;t tell what it says</h2>
@@ -144,7 +146,7 @@ function UnmatchedEmails({ emails, unsorted, apps, now }: { emails: UnmatchedEma
         {emails.length === 0 ? (
           unsorted.length === 0 && <p className="text-sm text-muted-foreground">No emails waiting to be linked.</p>
         ) : (
-          <Table containerClassName={scrollingTable.container} className={cardsOnPhone.table}>
+          <Table containerClassName="overflow-visible rounded-md border" className={cardsOnPhone.table}>
             <TableHeader className={scrollingTable.header}>
               <TableRow>
                 <TableHead>Email</TableHead>
@@ -173,6 +175,7 @@ function UnmatchedEmails({ emails, unsorted, apps, now }: { emails: UnmatchedEma
             </TableBody>
           </Table>
         )}
+        </div>
       </CardContent>
     </Card>
   );
