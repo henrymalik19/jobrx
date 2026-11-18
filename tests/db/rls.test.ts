@@ -20,7 +20,7 @@ const TABLES = [
   "application_events", "application_evidence_items", "application_questions", "application_status_transitions",
   "applications", "certifications", "companies", "educations", "emails", "employment_responsibilities",
   "employment_skills", "employments", "jobs", "lessons", "llm_calls", "match_criteria", "matches", 
-  "profile_skills", "profiles", "public_applications", "question_aliases", "question_answers", "questions",
+  "profile_skills", "profiles", "public_applications", "push_subscriptions", "question_aliases", "question_answers", "questions",
   "resumes", "app_settings", "skill_aliases", "skills", "user_companies", "user_settings", "users", "work_authorizations",
   "worker_runs", "worker_source_statuses",
 ];

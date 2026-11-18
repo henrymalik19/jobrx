@@ -25,7 +25,8 @@ import { leverDriver } from "@/server/integrations/browser/lever-driver";
 import { linkedinDriver } from "@/server/integrations/browser/linkedin-driver";
 import { linkedinBlocked, searchLinkedIn, searchWindowHours } from "@/server/integrations/browser/linkedin-search";
 import { getJobFilter, getMatchCriteria } from "@/server/modules/criteria/criteria.service";
-import { notify } from "@/server/modules/notifications/in-app";
+import { notify, relayPushesThrough } from "@/server/modules/notifications/in-app";
+import { LIVE_SHOT_MS, liveViewWanted, removeLiveShot, uploadLiveShot } from "@/server/modules/apply/live-view";
 import type { LinkedInJob } from "@/server/modules/discovery/linkedin-jobs";
 import { recordRun } from "@/server/integrations/browser/run-recorder";
 import { codeInbox } from "@/server/integrations/email/code-inbox";
@@ -183,6 +184,10 @@ async function main() {
     if (!res.ok) throw new Error(`the app answered ${res.status}`);
     return (await res.json()) as T;
   };
+  // Phone alerts for what the runner reports (waiting for you, stuck): the app sends them, with keys the runner hasn't got.
+  relayPushesThrough(async (notificationId) => {
+    await askApp("/api/runner/push", { notificationId });
+  });
   const mapFields: NonNullable<ApplyDeps["mapFields"]> = async (input) =>
     (await askApp<{ answers: Awaited<ReturnType<NonNullable<ApplyDeps["mapFields"]>>> }>("/api/runner/map-fields", input)).answers;
   const alternatives: NonNullable<ApplyDeps["alternatives"]> = async (input) =>
@@ -449,6 +454,30 @@ async function main() {
   };
   /** Those filled and waiting for you, with their tabs. */
   const waiting = new Map<string, Page>();
+  // Live view: while you watch the Applying page (from your phone, say), a screenshot of each open form every
+  // few seconds. Nobody watching, nothing is taken.
+  const liveTabs = new Map<string, Page>();
+  let liveBusy = false;
+  let liveFailed = false;
+  const liveTimer = setInterval(() => {
+    if (liveBusy || liveTabs.size === 0) return;
+    liveBusy = true;
+    void (async () => {
+      if (!(await liveViewWanted(db, userId, new Date()).catch(() => false))) return;
+      for (const [id, tab] of liveTabs) {
+        if (tab.isClosed()) continue;
+        const jpeg = await tab.screenshot({ type: "jpeg", quality: 50, timeout: 4000 }).catch(() => null);
+        if (!jpeg) continue;
+        await uploadLiveShot(db, userId, id, jpeg).then(
+          () => (liveFailed = false),
+          (err) => {
+            if (!liveFailed) log(`live view: couldn't upload a screenshot: ${(err as Error).message}`);
+            liveFailed = true;
+          },
+        );
+      }
+    })().finally(() => (liveBusy = false));
+  }, LIVE_SHOT_MS);
   /** The tab of a waiting form you're looking at, if any. */
   const frontTab = async (): Promise<Page | null> => {
     for (const p of waiting.values()) {
@@ -467,6 +496,7 @@ async function main() {
       page = await newTab();
       if (looking) await looking.bringToFront().catch(() => undefined);
       const tab = page;
+      liveTabs.set(app.id, tab);
       // One driver per job site; Greenhouse forms also get the fields outside their question list.
       const greenhouse = app.job.source === "greenhouse";
       const driver = app.job.source === "ashby" ? ashbyDriver(tab)
@@ -517,6 +547,7 @@ async function main() {
       log(`${app.id}: failed: ${(err as Error).message}`);
     } finally {
       waiting.delete(app.id);
+      if (liveTabs.delete(app.id)) await removeLiveShot(db, userId, app.id);
       open.delete(app.id);
       openSources.delete(app.id);
       endTurn();
@@ -567,6 +598,7 @@ async function main() {
     for (let waited = 0; waited < POLL_MS && !stopping; waited += 500) await new Promise((r) => setTimeout(r, 500));
   }
   await searching;
+  clearInterval(liveTimer);
   await rm(files, { recursive: true, force: true });
   // Set inside chrome(), which TypeScript can't follow from here.
   await (browser as BrowserContext | null)?.close().catch(() => undefined);

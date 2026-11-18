@@ -13,8 +13,38 @@ import { usesLinkedInResume } from "@/server/modules/apply/linkedin-resume";
 import { FormSkeleton } from "../../_components/skeletons";
 import { HandleForm } from "./handle-form";
 import { VersionsCard } from "./versions-card";
+import { PhoneAlerts } from "./phone-alerts";
+import { listPushDevices, vapidKeys } from "@/server/modules/notifications/push";
 import { cardsOnPhone } from "@/app/(signed-in)/_components/data-table";
 import { cn } from "@/shared/cn";
+
+async function PhoneAlertsSetting() {
+  const { db, owner } = await ownerContext();
+  const devices = await listPushDevices(db, owner.id);
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          Phone alerts <Badge variant={devices.length ? "secondary" : "outline"}>{devices.length ? `On for ${devices.length}` : "Off"}</Badge>
+        </CardTitle>
+        <CardDescription>
+          A buzz when the runner is waiting for you or stuck, or an interview invite or a reply arrives. Everything else stays in the bell.
+          Turn it on in each browser you want them in; on an iPhone, add Jobrx to your home screen first.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <PhoneAlerts publicKey={vapidKeys()?.publicKey ?? null} />
+        {devices.length > 0 && (
+          <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
+            {devices.map((d) => (
+              <li key={d.endpoint}>{d.device || "A browser"} · since {new Date(d.createdAt).toLocaleDateString()}</li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 async function PublicPageSetting() {
   const { db, owner } = await ownerContext();
@@ -160,6 +190,7 @@ export default function SettingsPage() {
     <main className="flex flex-col gap-6">
       <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
       <Suspense fallback={<FormSkeleton cards={2} />}>
+        <PhoneAlertsSetting />
         <PublicPageSetting />
         <ApplyRunnerSetting />
         <LinkedInResumeSetting />

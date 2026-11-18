@@ -6,6 +6,7 @@ import { APPLY_ATS, setPlatformMode } from "@/server/modules/apply/apply.service
 import { ValidationError } from "@/server/core/errors";
 import { setPublicHandle, setPublicPageEnabled } from "@/server/modules/public-page/public-page.service";
 import { setLinkedInResume } from "@/server/modules/apply/linkedin-resume";
+import { removePushSubscription, savePushSubscription, sendPush, type BrowserSubscription } from "@/server/modules/notifications/push";
 
 /** Chooses the resume LinkedIn applications send (field `onFile` = "true": the one on LinkedIn; else tailored). */
 export async function setLinkedInResumeAction(formData: FormData) {
@@ -44,4 +45,24 @@ export async function setPublicHandleAction(_prev: HandleState, formData: FormDa
     if (err instanceof ValidationError) return { error: err.message };
     throw err;
   }
+}
+
+/** Turns phone alerts on in this browser: saves its push subscription. */
+export async function savePushSubscriptionAction(sub: BrowserSubscription, device: string): Promise<void> {
+  const { db, owner } = await ownerContext();
+  await savePushSubscription(db, owner.id, sub, device);
+  refresh();
+}
+
+/** Turns phone alerts off in this browser. */
+export async function removePushSubscriptionAction(endpoint: string): Promise<void> {
+  const { db, owner } = await ownerContext();
+  await removePushSubscription(db, owner.id, endpoint);
+  refresh();
+}
+
+/** Sends a test alert to every browser alerts are on in; answers how many it reached. */
+export async function sendTestPushAction(): Promise<number> {
+  const { db, owner } = await ownerContext();
+  return sendPush(db, owner.id, { title: "Jobrx alerts are on", body: "You'll hear here when the runner needs you, or a company writes back.", href: "/app/applying", tag: "test" });
 }

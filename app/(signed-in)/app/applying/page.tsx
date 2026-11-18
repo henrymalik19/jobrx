@@ -12,6 +12,7 @@ import { runnerFills, SiteBadge } from "../../_components/site-badge";
 import { APPLY_STEP_TITLE, statusInfo } from "../../_components/status";
 import { Board, type BoardCard, type BoardColumn, type CardNote } from "./board";
 import { BoardSkeleton } from "../../_components/skeletons";
+import { LiveRunner } from "./live-runner";
 
 const COLUMNS: BoardColumn[] = [
   { key: "approved", label: "Approved", statuses: ["approved"], target: "approved", accent: "sky" },
@@ -132,6 +133,7 @@ export default function ApplyingPage() {
           try again. Drag a card, or use its Move menu, when you apply yourself, hear back, get an interview, an offer or a no.
         </InfoTip>
       </h1>
+      <LiveRunner />
       <Suspense fallback={<BoardSkeleton />}>
         <Applying />
       </Suspense>

@@ -3,6 +3,7 @@
 // event when a worker runs again over the same thing.
 import type { Db } from "@/server/db/types";
 import { check, unwrap } from "@/server/core/errors";
+import { PUSH_KINDS, sendPush } from "./push";
 
 /** What a notification is about, which sets its icon and color. */
 export const NOTIFICATION_KINDS = [
@@ -46,8 +47,19 @@ export type Notification = {
 export const applicationHref = (applicationId: string) => `/app/applications/${applicationId}`;
 
 /**
- * Adds a notification for a user; one with a `dedupeKey` they already have is skipped. Never throws:
- * a notification that can't be saved shouldn't stop the work it's about.
+ * How a process without the push keys (the apply runner) gets a new notification's phone alert sent: it asks
+ * the app, by the notification's id. Unset, alerts are sent directly ({@link sendPush}).
+ */
+let pushRelay: ((notificationId: string) => Promise<void>) | null = null;
+/** Sets (or clears) how this process has its phone alerts sent. */
+export function relayPushesThrough(relay: ((notificationId: string) => Promise<void>) | null): void {
+  pushRelay = relay;
+}
+
+/**
+ * Adds a notification for a user; one with a `dedupeKey` they already have is skipped. A new one of a kind
+ * that needs you ({@link PUSH_KINDS}) also goes to your phone. Never throws: a notification that can't be
+ * saved shouldn't stop the work it's about.
  */
 export async function notify(db: Db, userId: string, n: NewNotification): Promise<void> {
   try {
@@ -61,13 +73,23 @@ export async function notify(db: Db, userId: string, n: NewNotification): Promis
       dedupe_key: n.dedupeKey ?? null,
     };
     const res = n.dedupeKey
-      ? await db.from("notifications").upsert(row, { onConflict: "user_id,dedupe_key", ignoreDuplicates: true })
-      : await db.from("notifications").insert(row);
-    if (res.error) console.error(`notification not saved: ${res.error.message}`);
+      ? await db.from("notifications").upsert(row, { onConflict: "user_id,dedupe_key", ignoreDuplicates: true }).select("id")
+      : await db.from("notifications").insert(row).select("id");
+    if (res.error) return console.error(`notification not saved: ${res.error.message}`);
+    // A duplicate (the same event again) was skipped: no second alert.
+    const id = res.data?.[0]?.id;
+    if (!id || !PUSH_KINDS.has(n.kind)) return;
+    if (pushRelay) await pushRelay(id).catch((err) => console.error(`push not relayed: ${err instanceof Error ? err.message : String(err)}`));
+    else await sendPush(db, userId, pushMessage({ id, ...row }));
   } catch (err) {
     console.error(`notification not saved: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
+
+/** A saved notification as a phone alert: its title and body, leading where it does in the app. */
+export const pushMessage = (n: { id: string; title: string; body: string | null; href: string | null }) => ({
+  title: n.title, body: n.body, href: n.href ?? "/app/notifications", tag: n.id,
+});
 
 /** A user's notifications, newest first. */
 export async function listNotifications(db: Db, userId: string, limit = 50): Promise<Notification[]> {
