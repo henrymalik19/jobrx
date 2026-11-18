@@ -102,6 +102,12 @@ describe("sureKind", () => {
     expect(sureKind(mail("Your application to Staff Engineer at Acme", "Your application was sent to Acme.", "jobs-noreply@linkedin.com"))).toBeNull();
     expect(sureKind(mail("Thank you for applying to Acme", "We have received your application."))).toBeNull();
     expect(sureKind(mail("Your application at Nango", "Unfortunately, we won't be able to move forward.", "no-reply@ashbyhq.com"))).toBeNull();
+    // A job board that is the employer: its receipt for applying to it is Claude's to read; its alerts aren't.
+    expect(sureKind(mail("Thank you for applying to ZipRecruiter!", "We received your application.", "no-reply@ziprecruiter.com"))).toBeNull();
+    expect(classifyByRules(mail("Thank you for applying to ZipRecruiter!", "We received your application.", "no-reply@ziprecruiter.com"))).toBe("confirmation");
+    expect(sureKind(mail("New jobs for you", "…", "no-reply@ziprecruiter.com"))).toBe("job_alert");
+    // A sign-in PIN is a code.
+    expect(sureKind(mail("Malik, here's your PIN 144510", "Use this PIN to finish signing in.", "security-noreply@linkedin.com"))).toBe("code");
   });
 });
 
@@ -158,6 +164,10 @@ describe("matchEmail", () => {
   it("reads company names without their suffix", () => {
     expect(companyKey("Scale AI, Inc.")).toBe("scale ai");
     expect(companyKey("Acme Technologies LLC")).toBe("acme");
+    // A board's name with "hq" glued on is the company's own name in its emails.
+    expect(companyKey("Assembledhq")).toBe("assembled");
+    const assembled = app("as", "Assembledhq", "Software Engineer, Workforce Operations", "2026-11-03T11:59:00Z");
+    expect(matchEmail({ ...mail("Thank you for applying to Assembled", "Thanks for applying!", "no-reply@ashbyhq.com"), receivedAt: at }, [assembled])).toMatchObject({ app: { id: "as" }, confidence: 0.9 });
   });
 });
 

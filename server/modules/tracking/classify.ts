@@ -13,7 +13,8 @@ export type MailText = { fromAddress: string; fromName: string; subject: string;
 
 // Checked in this order: a rejection often opens with "thank you for applying", and an
 // interview invite with "thanks for your interest".
-const CODE = /\b(security|verification) code\b/i;
+// A sign-in or application code: "Security code for your application", LinkedIn's "Malik, here's your PIN 144510".
+const CODE = /\b(security|verification|one[- ]time|sign[- ]in|login) (code|passcode)\b|\byour pin\b/i;
 // A rejection says a decision was made. Receipts use the same words conditionally ("if you're not
 // selected, we'll let you know", "unfortunately we can't reply to everyone"), so a sentence counts only
 // when it states a decision, and never when it's an "if".
@@ -42,6 +43,11 @@ const JOB_ALERT_SENDER =
 // the same subject. Read before job alerts, which come from the same sender.
 const LINKEDIN_SENDER = /@([a-z0-9-]+\.)*linkedin\.com$/i;
 const LINKEDIN_APPLICATION = /^([^,]{1,40}, )?your application (to .+ at .+|was sent to .+)$/i;
+// A job board can be the employer too (applying to ZipRecruiter itself): its mail about an application you
+// sent isn't an alert. LinkedIn's application mail has its own rule above; its "viewed" notices are alerts.
+const APPLICATION_SUBJECT = /\bthank(s| you) for (applying|your application|your interest)\b|\byour application\b|\bapplication (received|submitted|update)\b/i;
+const boardAlert = (mail: MailText) =>
+  JOB_ALERT_SENDER.test(mail.fromAddress) && (LINKEDIN_SENDER.test(mail.fromAddress.trim()) || !APPLICATION_SUBJECT.test(mail.subject));
 const JOB_ALERT_SUBJECT =/\bjob alert\b|\bjobs? (for|matching) you\b|\bnew jobs?\b|\brecommended jobs?\b/i;
 // Mail sent by an ATS or a company's careers address: a recruiter's personal note
 // may come from either, so it isn't "other" just because no rule fired.
@@ -75,7 +81,7 @@ export function classifyByRules(original: MailText): EmailKind | null {
   if (LINKEDIN_SENDER.test(mail.fromAddress.trim()) && LINKEDIN_APPLICATION.test(mail.subject.trim())) {
     return saysRejected(head) ? "rejection" : "confirmation";
   }
-  if (JOB_ALERT_SENDER.test(mail.fromAddress) || JOB_ALERT_SUBJECT.test(mail.subject)) return "job_alert";
+  if (boardAlert(mail) || JOB_ALERT_SUBJECT.test(mail.subject)) return "job_alert";
   if (saysRejected(head)) return "rejection";
   if (INTERVIEW.test(head)) return "interview";
   if (CONFIRMATION.test(head)) return "confirmation";
@@ -91,7 +97,7 @@ export function sureKind(original: MailText): "code" | "job_alert" | null {
   const mail = unforwarded(original);
   if (CODE.test(mail.subject)) return "code";
   if (LINKEDIN_SENDER.test(mail.fromAddress.trim()) && LINKEDIN_APPLICATION.test(mail.subject.trim())) return null;
-  return JOB_ALERT_SENDER.test(mail.fromAddress) ? "job_alert" : null;
+  return boardAlert(mail) ? "job_alert" : null;
 }
 
 /** Whether an email comes from an ATS (Greenhouse, Lever, Ashby, …). */
@@ -177,8 +183,11 @@ const RECEIPT_SLACK_MS = 2 * 60_000;
 const SUFFIX = /\b(inc|llc|ltd|corp|corporation|co|company|technologies|technology|labs|group|holdings|plc|gmbh)\b\.?/g;
 // "&" and "and" are the same in a company name ("Hims & Hers", "Hims and Hers"), so "and" is dropped.
 const words = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\band\b/g, " ").replace(/\s+/g, " ").trim();
-/** A company name as it appears in text: lower-case words without "Inc." and the like. */
-export const companyKey = (name: string) => words(words(name).replace(SUFFIX, " "));
+/**
+ * A company name as it appears in text: lower-case words without "Inc." and the like, nor a board name's
+ * glued-on "hq" (the board "assembledhq" is Assembled in its emails).
+ */
+export const companyKey = (name: string) => words(words(name).replace(SUFFIX, " ").replace(/\b([a-z0-9]{3,})hq\b/g, "$1"));
 
 /**
  * Finds the application an email is about: the company named in the sender, subject
