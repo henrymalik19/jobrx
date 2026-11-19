@@ -4,8 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ownerContext } from "@/server/auth/require-owner";
-import type { AppStatus } from "@/server/modules/applications/application-status";
-import { blockingQuestions, listApplications, runnerHandedBack, yourSteps, type ApplicationWithDetails } from "@/server/modules/applications/applications.service";
+import { blockingQuestions, listApplications, yourSteps, type ApplicationWithDetails } from "@/server/modules/applications/applications.service";
 import { classifyByRules, matchEmail } from "@/server/modules/tracking/classify";
 import { listUnmatchedEmails, listUnsortedEmails, type UnmatchedEmail } from "@/server/modules/tracking/tracking.service";
 import { cn } from "@/shared/cn";
@@ -16,32 +15,11 @@ import { SiteBadge } from "../../_components/site-badge";
 import { TONE_BADGE } from "../../_components/status";
 import { LinkEmail, type LinkTarget } from "./link-email";
 import { QuickDecide } from "./quick-decide";
+import { laneHref, splitLanes, TABS, type TabId } from "./lanes";
 import { TableSkeleton } from "../../_components/skeletons";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
-/**
- * The two lanes waiting on you before approval, by the statuses each holds (ids match todoHref).
- * Ready to approve includes forms preparing found can't be filled automatically.
- */
-const TABS = [
-  {
-    id: "ready",
-    label: "Ready to approve",
-    statuses: ["queued", "manual"],
-    hint: "Every required question is answered, or the form can't be filled automatically (approve those to wait for the apply runner, or apply yourself). Open one to check it, then approve or skip.",
-    empty: "Nothing to approve. New applications are prepared after each matching run.",
-  },
-  {
-    id: "answers",
-    label: "Missing answers",
-    statuses: ["needs_input"],
-    hint: "A required question couldn't be answered from your profile or saved answers. Open one to answer; once nothing is missing it moves to Ready to approve, and short answers fill in on other forms.",
-    empty: "No questions waiting on you.",
-  },
-] as const satisfies readonly { id: string; label: string; statuses: readonly AppStatus[]; hint: string; empty: string }[];
-
-type TabId = (typeof TABS)[number]["id"];
 
 /** Short label per flag kind (see the application page for the full text). */
 const FLAG_LABEL: Record<string, string> = { ai_restriction: "Restricts AI", ai_directed_text: "Text aimed at AI" };
@@ -196,8 +174,7 @@ async function Todo({ searchParams }: { searchParams: SearchParams }) {
   );
   const waiting = emails.length + unsorted.length;
   // Ones the apply runner handed back are on the board (Runner stuck).
-  const apps = listed.filter((a) => !runnerHandedBack(a));
-  const byTab = Object.fromEntries(TABS.map((t) => [t.id, apps.filter((a) => (t.statuses as readonly string[]).includes(a.status))])) as Record<TabId, ApplicationWithDetails[]>;
+  const byTab = splitLanes(listed);
   // Without a tab in the URL, open the first lane that has something in it.
   const asked = TABS.find((t) => t.id === one(params.tab));
   const showEmails = one(params.tab) === "emails" || (!asked && TABS.every((t) => byTab[t.id].length === 0) && waiting > 0);
@@ -263,7 +240,7 @@ async function Todo({ searchParams }: { searchParams: SearchParams }) {
                       {a.score != null ? <Badge className="tabular-nums">{a.score}</Badge> : <span className="text-muted-foreground max-md:hidden">—</span>}
                     </TableCell>
                     <TableCell className={cn("max-w-xs whitespace-normal align-top", cardsOnPhone.first)}>
-                      <Link href={`/app/applications/${a.id}?from=todo`} className="font-medium hover:underline">{a.job.title}</Link>
+                      <Link href={laneHref(a.id, current.id)} className="font-medium hover:underline">{a.job.title}</Link>
                       <div className="flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
                         {a.job.company_name}{a.job.location ? ` · ${a.job.location}` : ""}
                         <SiteBadge source={a.job.source} />

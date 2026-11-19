@@ -4,6 +4,8 @@ import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { ownerContext } from "@/server/auth/require-owner";
+import type { Db } from "@/server/db/types";
+import { isTabId, laneHref, laneIds, type TabId } from "../todo/lanes";
 import { createClaudeCaller, DRAFTING_MODEL } from "@/server/integrations/anthropic/claude";
 import { ValidationError } from "@/server/core/errors";
 import { answerQuestions, approveApplication, IllegalTransitionError, moveApplication, skipApplication } from "@/server/modules/applications/applications.service";
@@ -35,10 +37,28 @@ export async function answerQuestionsAction(_prev: FormMessageState, formData: F
   }
 }
 
-/** Approves a queued application. */
+/**
+ * After deciding on an application opened from a To do lane: the one after it in that lane, as the lane is now,
+ * else the lane itself. `before` is the lane as it was before the decision, for where this one stood.
+ */
+async function nextInLane(db: Db, userId: string, lane: TabId, applicationId: string, before: string[]): Promise<string> {
+  const now = new Set(await laneIds(db, userId, lane));
+  const next = before.slice(before.indexOf(applicationId) + 1).find((id) => id !== applicationId && now.has(id));
+  return next ? laneHref(next, lane) : `/app/todo?tab=${lane}`;
+}
+
+/** The To do lane a decision was made from (a hidden field), or null. */
+function laneFrom(formData: FormData): TabId | null {
+  const lane = formData.get("lane");
+  return isTabId(lane) ? lane : null;
+}
+
+/** Approves a queued application; from a To do lane, goes on to the next one in it. */
 export async function approveAction(_prev: FormMessageState, formData: FormData): Promise<FormMessageState> {
   const { db, owner } = await ownerContext();
   const applicationId = text(formData, "application_id");
+  const lane = laneFrom(formData);
+  const before = lane ? await laneIds(db, owner.id, lane) : [];
   try {
     // The runner attaches a resume that matches your profile now: made first when it's missing or out of
     // date. If it can't be (the Claude budget), the one it has is sent.
@@ -48,7 +68,7 @@ export async function approveAction(_prev: FormMessageState, formData: FormData)
     if (err instanceof ValidationError || err instanceof IllegalTransitionError) return { error: err.message };
     throw err;
   }
-  redirect("/app/todo?tab=ready");
+  redirect(lane ? await nextInLane(db, owner.id, lane, applicationId, before) : "/app/todo?tab=ready");
 }
 
 /** Sends an application the apply runner handed back to it again. */
@@ -85,8 +105,11 @@ export async function moveApplicationAction(applicationId: string, to: string): 
 /** Skips an application, with an optional reason and lesson, and optionally never matches its company again. */
 export async function skipAction(_prev: FormMessageState, formData: FormData): Promise<FormMessageState> {
   const { db, owner } = await ownerContext();
+  const applicationId = text(formData, "application_id");
+  const lane = laneFrom(formData);
+  const before = lane ? await laneIds(db, owner.id, lane) : [];
   try {
-    await skipApplication(db, owner.id, text(formData, "application_id"), {
+    await skipApplication(db, owner.id, applicationId, {
       reason: text(formData, "reason"),
       lesson: text(formData, "lesson"),
       lessonScope: text(formData, "lesson_scope") || "scoring",
@@ -96,7 +119,7 @@ export async function skipAction(_prev: FormMessageState, formData: FormData): P
     if (err instanceof ValidationError || err instanceof IllegalTransitionError) return { error: err.message };
     throw err;
   }
-  redirect(text(formData, "back") || "/app/todo");
+  redirect(lane ? await nextInLane(db, owner.id, lane, applicationId, before) : text(formData, "back") || "/app/todo");
 }
 
 /** Redrafts one answer with AI, with optional guidance for this answer. */

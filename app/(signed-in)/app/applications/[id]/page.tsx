@@ -25,6 +25,8 @@ import { MatchCard } from "../../../_components/match-card";
 import { runnerFills, SiteBadge } from "../../../_components/site-badge";
 import { LiveRefresh } from "../../../_components/live-refresh";
 import { APPLY_STEP_TITLE, backLink, statusInfo, todoHref, TONE_BADGE, type Tone } from "../../../_components/status";
+import { LaneNav } from "../lane-nav";
+import { isTabId, laneHref, laneIds, laneOf, lanePosition, TABS, type TabId } from "../../todo/lanes";
 import { DecideActions, MarkAppliedButton, RebuildResumeButton, RetryApplyButton } from "../decide-actions";
 import { isResumeOutdated, recheckOpenQuestions, RESUME_STATUSES, RULES_VERSION } from "@/server/modules/prepare/prepare.service";
 import { createClaudeCaller } from "@/server/integrations/anthropic/claude";
@@ -288,7 +290,7 @@ function ResumeCard({ resume, url, stale, applicationId, status, onLinkedIn = fa
   );
 }
 
-function Decide({ app }: { app: ApplicationWithDetails }) {
+function Decide({ app, lane }: { app: ApplicationWithDetails; lane: TabId | null }) {
   const back = todoHref(app.status, app.apply_note);
   return (
     <Card size="sm">
@@ -305,7 +307,7 @@ function Decide({ app }: { app: ApplicationWithDetails }) {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <DecideActions applicationId={app.id} company={app.job.company_name} canApprove={app.status === "queued" || (app.status === "manual" && app.apply_note == null)} back={back} />
+        <DecideActions applicationId={app.id} company={app.job.company_name} canApprove={app.status === "queued" || (app.status === "manual" && app.apply_note == null)} back={back} lane={lane} />
       </CardContent>
     </Card>
   );
@@ -417,14 +419,31 @@ async function ApplicationDetail({ params, searchParams }: { params: Params; sea
   const toCheck = app.questions.filter((q) => !yours.includes(q) && (q.bucket === "drafted" || q.needs_check));
   const filled = app.questions.filter((q) => !yours.includes(q) && !toCheck.includes(q));
 
-  const back = backLink(app.status, app.apply_note, typeof query.from === "string" ? query.from : undefined);
+  const from = typeof query.from === "string" ? query.from : undefined;
+  const back = backLink(app.status, app.apply_note, from);
+  // Opened from a To do lane: the arrows step through that lane as it is now.
+  const lane: TabId | null = from === "todo" ? (isTabId(query.tab) ? query.tab : laneOf(app.status)) : null;
+  const place = lane ? lanePosition(await laneIds(db, owner.id, lane), app.id) : null;
+  if (lane) back.href = `/app/todo?tab=${lane}`;
   return (
     <div className="flex flex-col gap-6">
       {/* While approved the apply runner may be filling it; other states have answer boxes a refresh could disturb. */}
       {app.status === "approved" && <LiveRefresh everyMs={5000} />}
-      <Link href={back.href} className={`${buttonVariants({ variant: "ghost", size: "sm" })} -mb-2 self-start`}>
-        <ArrowLeft /> {back.label}
-      </Link>
+      <div className="-mb-2 flex items-center justify-between gap-2">
+        <Link href={back.href} className={buttonVariants({ variant: "ghost", size: "sm" })}>
+          <ArrowLeft /> {back.label}
+        </Link>
+        {lane && place && (
+          <LaneNav
+            prev={place.prev && laneHref(place.prev, lane)}
+            next={place.next && laneHref(place.next, lane)}
+            back={back.href}
+            index={place.index}
+            total={place.total}
+            label={TABS.find((t) => t.id === lane)!.label}
+          />
+        )}
+      </div>
       {/* Stays at the top while the questions scroll; the negative margins cover the page padding. */}
       <header className="sticky -top-8 z-10 -mx-4 -mt-4 flex flex-wrap items-end justify-between gap-3 border-b bg-background px-4 pt-4 pb-3 md:-mx-8 md:px-8">
         <div className="min-w-0">
@@ -524,7 +543,7 @@ async function ApplicationDetail({ params, searchParams }: { params: Params; sea
           <EmailsCard emails={emails} now={now} />
         </div>
         <aside className="flex flex-col gap-6 lg:sticky lg:top-32">
-          {editable && <Decide app={app} />}
+          {editable && <Decide app={app} lane={lane} />}
           <MatchCard match={match} stacked showThreshold={false} />
           <ResumeCard
             resume={resume}

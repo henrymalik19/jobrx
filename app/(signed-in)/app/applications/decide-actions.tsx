@@ -11,9 +11,10 @@ import { approveAction, moveApplicationAction, retryApplyAction, skipAction, reb
 
 /**
  * Approve and Skip as two equal buttons. Skip asks for an optional reason,
- * rule and whether to never match the company again before it's confirmed.
+ * rule and whether to never match the company again before it's confirmed. Opened from a To do lane (`lane`),
+ * either goes on to the next one in it.
  */
-export function DecideActions({ applicationId, company, canApprove, back }: { applicationId: string; company: string; canApprove: boolean; back: string }) {
+export function DecideActions({ applicationId, company, canApprove, back, lane = null }: { applicationId: string; company: string; canApprove: boolean; back: string; lane?: string | null }) {
   const [approveState, approve, approving] = useActionState<FormMessageState, FormData>(approveAction, {});
   const [skipState, skip, skipping] = useActionState<FormMessageState, FormData>(skipAction, {});
   const [skipOpen, setSkipOpen] = useState(false);
@@ -23,6 +24,7 @@ export function DecideActions({ applicationId, company, canApprove, back }: { ap
         {canApprove ? (
           <form action={approve}>
             <input type="hidden" name="application_id" value={applicationId} />
+            {lane && <input type="hidden" name="lane" value={lane} />}
             <Button type="submit" disabled={approving} className="w-full bg-success text-background hover:bg-success/85">
               <Check /> {approving ? "Approving…" : "Approve"}
             </Button>
@@ -40,6 +42,7 @@ export function DecideActions({ applicationId, company, canApprove, back }: { ap
       {skipOpen && (
         <form action={skip} className="flex flex-col gap-2 rounded-lg border border-destructive/30 p-3">
           <input type="hidden" name="application_id" value={applicationId} />
+            {lane && <input type="hidden" name="lane" value={lane} />}
           <input type="hidden" name="back" value={back} />
           <Input name="reason" placeholder="Why (optional), e.g. too much on-call" aria-label="Why you're skipping" />
           <Input name="lesson" placeholder="Rule for Claude (optional), e.g. Skip roles with heavy on-call" aria-label="Rule for Claude" />
