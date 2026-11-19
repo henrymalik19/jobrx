@@ -98,6 +98,20 @@ describe.skipIf(!browser)("linkedinDriver", () => {
     expect(await driver.discard!()).toBe(true);
   }, 30_000);
 
+  it("fills a box named only by its aria-label, with no id", async () => {
+    const driver = linkedinDriver(page, INSTANT);
+    expect(await driver.open(FIXTURE)).toBe("ok");
+    await page.evaluate(() =>
+      document.querySelector('[data-testid="dialog-content"]')!.insertAdjacentHTML("beforeend", '<input type="text" aria-label="LinkedIn*" required>'),
+    );
+    const open = await driver.openFields!([]);
+    expect(open.map((f) => f.key)).toEqual(["q:linkedin"]);
+    const url = "https://www.linkedin.com/in/ada-lovelace/";
+    expect(await driver.fill({ kind: "text", fieldName: "q:linkedin", label: "LinkedIn", required: true, value: url }, resume)).toBe(true);
+    expect(await driver.values([{ kind: "text", fieldName: "q:linkedin", label: "", required: true, value: "" }])).toEqual({ "q:linkedin": url });
+    expect(await driver.discard!()).toBe(true);
+  }, 30_000);
+
   it("tells a closed posting from a page with no form for another reason", async () => {
     const driver = linkedinDriver(page, INSTANT);
     // Data URLs stand in for the job pages: LinkedIn shows the note in place of Easy Apply.

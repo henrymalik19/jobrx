@@ -113,6 +113,38 @@ const FIND = (label: string) => `(() => {
   return null;
 })()`;
 
+/** Runs in the page (needs `d` and the choice helpers): a field's question, as the scan and `field` both read it. */
+const ASKED_JS = `const asked = (e) => {
+    if (e.type === "radio" || e.type === "checkbox") return questionOf(e, d);
+    const l = e.id && document.querySelector('label[for="' + CSS.escape(e.id) + '"]');
+    return ((l && l.textContent) || e.getAttribute("aria-label") || e.getAttribute("placeholder") || "").replace(/\\s+/g, " ").trim();
+  };`;
+
+/** What `field` marks the box it found with, so it can be found again without an id. */
+const MARK = "data-jobrx-field";
+
+/**
+ * Runs in the page: marks the visible text box or list whose question is `label` (normalized), read as the scan
+ * reads it (its label, else its aria-label, else its placeholder), and returns its tag; null when there's none.
+ */
+const MARK_FIELD = (label: string) => `(() => {
+  ${FORM_DIALOG_JS}
+  const d = FORM_DIALOG();
+  if (!d) return null;
+  ${CHOICE_HELPERS}
+  ${ASKED_JS}
+  const shown = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  for (const e of document.querySelectorAll("[${MARK}]")) e.removeAttribute("${MARK}");
+  for (const e of d.querySelectorAll("input, select, textarea")) {
+    const type = (e.getAttribute("type") || "").toLowerCase();
+    if (["hidden", "file", "submit", "button", "search", "radio", "checkbox"].includes(type) || !shown(e)) continue;
+    if (clean(asked(e)).toLowerCase() !== ${JSON.stringify(label)}) continue;
+    e.setAttribute("${MARK}", "");
+    return e.tagName;
+  }
+  return null;
+})()`;
+
 // Runs in the page: the dialog's visible questions, with what each shows now and whether it's required.
 const SCAN = `(() => {
   ${FORM_DIALOG_JS}
@@ -120,11 +152,7 @@ const SCAN = `(() => {
   if (!d) return [];
   ${CHOICE_HELPERS}
   const shown = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
-  const asked = (e) => {
-    if (e.type === "radio" || e.type === "checkbox") return questionOf(e, d);
-    const l = e.id && document.querySelector('label[for="' + CSS.escape(e.id) + '"]');
-    return ((l && l.textContent) || e.getAttribute("aria-label") || e.getAttribute("placeholder") || "").replace(/\\s+/g, " ").trim();
-  };
+  ${ASKED_JS}
   const labelOf = (e) => clean(asked(e));
   // Required: marked on the input, or a "*" after its question.
   const required = (e) => e.required || e.getAttribute("aria-required") === "true" || /[*✱]\\s*$/.test(asked(e));
@@ -183,17 +211,10 @@ export function linkedinDriver(page: Page, pace: Pace = HUMAN): FormDriver {
       // Each choice's text, in the order the inputs are found (read in the page, as the scan reads them).
       return { kind: choice.type === "checkbox" ? "checkbox" : "radio", inputs, options: choice.options };
     }
-    const labels = dialog.locator("label");
-    for (let i = 0; i < (await labels.count()); i++) {
-      const l = labels.nth(i);
-      if (norm(((await l.textContent()) ?? "").replace(/[*✱]\s*$/, "")) !== label) continue;
-      const id = await l.getAttribute("for");
-      if (!id) continue;
-      const input = dialog.locator(`[id=${JSON.stringify(id)}]`);
-      const tag = await input.evaluate((e) => e.tagName).catch(() => "");
-      return { kind: tag === "SELECT" ? "select" : "text", inputs: input };
-    }
-    return null;
+    // A box found as the scan finds its question (its label, else aria-label or placeholder; it may have no id).
+    const tag = (await page.evaluate(MARK_FIELD(label)).catch(() => null)) as string | null;
+    if (!tag) return null;
+    return { kind: tag === "SELECT" ? "select" : "text", inputs: dialog.locator(`[${MARK}]`).first() };
   }
 
 
