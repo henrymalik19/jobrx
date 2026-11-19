@@ -199,9 +199,9 @@ function SideScroller({ children }: { children: ReactNode }) {
   );
 
   return (
-    <div className="relative flex min-h-0 flex-1">
+    <div className="relative flex min-h-0 min-w-0 flex-1">
       {/* On a phone only one lane shows (picked above): nothing to scroll sideways. */}
-      <div ref={ref} className="flex min-h-0 flex-1 gap-3 pb-2 md:overflow-x-auto">
+      <div ref={ref} className="flex min-h-0 min-w-0 flex-1 gap-3 pb-2 md:overflow-x-auto">
         {children}
       </div>
       {more.left && arrow(-1)}
@@ -223,7 +223,7 @@ function Lane({ col, count, state, onPhone, children }: { col: BoardColumn; coun
       className={cn(
         // On desktop each lane scrolls its own cards: it fills the board's height, never the page. On a phone the
         // one shown is as tall as its cards, and the page scrolls.
-        "flex shrink-0 flex-col rounded-xl border border-t-4 bg-muted/40 transition-colors max-md:w-full md:w-72 md:min-h-0",
+        "flex min-w-0 flex-col rounded-xl border border-t-4 bg-muted/40 transition-colors max-md:w-full md:w-72 md:min-h-0 md:shrink-0",
         !onPhone && "max-md:hidden",
         ACCENTS[col.accent].lane,
         state === "open" && (isOver ? "border-primary bg-primary/10" : "border-primary/50 bg-primary/5"),
@@ -265,7 +265,7 @@ function CardBody({ card, accent, muted, targets = [], onMove, lifted }: {
   return (
     <article
       className={cn(
-        "flex flex-col gap-1 rounded-lg border border-l-4 bg-card p-3 text-sm shadow-xs",
+        "flex min-w-0 flex-col gap-1 rounded-lg border border-l-4 bg-card p-3 text-sm shadow-xs",
         ACCENTS[accent].card,
         targets.length > 0 && "cursor-grab",
         muted && "opacity-70",
@@ -277,7 +277,8 @@ function CardBody({ card, accent, muted, targets = [], onMove, lifted }: {
         {card.company}
         {card.badge}
       </div>
-      <div className="mt-1.5 flex items-center gap-2">
+      {/* The note takes what's left of the line and cuts off; Apply and Move stay whole. */}
+      <div className="mt-1.5 flex min-w-0 items-center gap-2 [&>:first-child]:min-w-0">
         <Note note={card.note} />
         {card.applyUrl && (
           <a href={card.applyUrl} target="_blank" rel="noreferrer" draggable={false} className="shrink-0 text-xs font-medium text-primary hover:underline">

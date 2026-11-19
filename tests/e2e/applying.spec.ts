@@ -38,7 +38,8 @@ test("on a phone: one column at a time, picked from a list, its cards down the p
   await page.setViewportSize({ width: 390, height: 844 });
   const sent: { title: string }[] = [];
   for (let i = 0; i < 8; i++) sent.push(await seed.application(`phone${i}`, "submitted", { submitted_at: new Date().toISOString() }));
-  const stuck = await seed.application("phone-stuck", "manual", { apply_note: "Nobody submitted the form within 30 minutes." });
+  // A long title and a long note: they cut off or wrap, never widening the column past the screen.
+  const stuck = await seed.application("phone-stuck-with-a-very-long-title-Sr-Staff-Software-Engineer-Notifications-and-Growth-Platform", "manual", { apply_note: "Nobody submitted the form within 30 minutes, so it was handed back to you to finish or retry." });
   await page.goto("/app/applying");
 
   const column = page.getByRole("combobox", { name: "Board column" });
@@ -56,6 +57,9 @@ test("on a phone: one column at a time, picked from a list, its cards down the p
 
   await column.selectOption({ label: (await column.locator("option").allTextContents()).find((o) => o.startsWith("Runner stuck"))! });
   await expect(page.getByRole("region", { name: "Runner stuck" }).getByText(stuck.title)).toBeVisible();
+  const widest = await page.evaluate(() => Math.max(...[...document.querySelectorAll("main *")].map((e) => e.getBoundingClientRect().right)));
+  expect(widest).toBeLessThanOrEqual(390);
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/applying-phone-stuck.png` });
   await expect(submitted).toBeHidden();
   expect(picked).toBeTruthy();
 });
