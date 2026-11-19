@@ -291,6 +291,22 @@ export async function answerQuestions(
   return { note: parts.join(" ") || "Nothing changed.", movedToReview, reapproved };
 }
 
+/**
+ * Moves on applications in Missing answers with nothing left to answer (their last answers were filled in another
+ * way: a saved answer, your profile): to Ready to approve, or back to the runner, approved again, when it sent them
+ * there and nothing on them is left to check (as answering does).
+ *
+ * @returns The ids it moved.
+ */
+export async function settleAnswered(db: Db, userId: string, apps: ApplicationWithDetails[]): Promise<string[]> {
+  const done = apps.filter((a) => a.status === "needs_input" && blockingQuestions(a).length === 0);
+  for (const app of done) {
+    await transition(db, app.id, "queued", "system:answered");
+    if (await sentHereByRunner(db, app.id)) await reapprove(db, userId, app.id);
+  }
+  return done.map((a) => a.id);
+}
+
 /** Whether an application's questions came from the runner going through its form after you approved it. */
 async function sentHereByRunner(db: Db, applicationId: string): Promise<boolean> {
   const { data } = await db
