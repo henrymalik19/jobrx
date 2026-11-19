@@ -46,8 +46,18 @@ export async function pruneSavedJobsAction(): Promise<FormMessageState> {
   const result = await pruneSavedJobs(db, [owner.id], new Date());
   refresh();
   return {
-    ok: `Checked ${result.checked.toLocaleString()} saved jobs: removed ${result.removed.toLocaleString()}, kept ${result.kept.toLocaleString()}.`,
+    ok: `Removed ${result.removed.toLocaleString()} saved ${result.removed === 1 ? "job" : "jobs"}; ${result.kept.toLocaleString()} still pass your filters.`,
   };
+}
+
+/** What re-checking saved jobs would remove, without removing anything. */
+export type PruneCheck = { checked: number; removed: number; examples: string[] } | null;
+
+/** Checks saved jobs against the filters as they are now: how many would go, and a few of them. */
+export async function checkSavedJobsAction(): Promise<PruneCheck> {
+  const { db, owner } = await ownerContext();
+  const { checked, removed, examples } = await pruneSavedJobs(db, [owner.id], new Date(), { dryRun: true });
+  return { checked, removed, examples };
 }
 
 /** Matching-criteria form action. Changes apply to jobs matched from now on. */

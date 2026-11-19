@@ -1,4 +1,5 @@
 import { Suspense, type ReactNode } from "react";
+import { ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -150,34 +151,44 @@ async function SearchCriteria() {
         <CardHeader>
           <CardTitle>Recently skipped</CardTitle>
           <CardDescription>
-            A sample of postings the latest discovery runs didn&apos;t save, and why. If something here looks like a job
-            you&apos;d want, loosen the matching filter.
+            Postings the latest discovery runs didn&apos;t save, by why. One you&apos;d want? Loosen that filter above.
           </CardDescription>
         </CardHeader>
         <CardContent>
           {skipped.length === 0 ? (
             <p className="text-sm text-muted-foreground">Nothing recorded yet; samples appear after the next discovery run.</p>
           ) : (
-            <ul className="grid gap-x-6 gap-y-1 text-sm md:grid-cols-2">
-              {skipped.map((s, i) => (
-                <li key={i} className="flex justify-between gap-3">
-                  <span className="truncate">
-                    {s.title} <span className="text-muted-foreground">· {s.company}</span>
-                  </span>
-                  <span className="shrink-0 text-muted-foreground">{s.reason}</span>
-                </li>
+            <div className="flex flex-col gap-2">
+              {byReason(skipped).map(([reason, list]) => (
+                <details key={reason} className="group rounded-lg border px-3 py-2">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm [&::-webkit-details-marker]:hidden">
+                    <span className="flex items-center gap-2 font-medium">
+                      <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" />
+                      {SKIP_REASON[reason] ?? reason}
+                    </span>
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs tabular-nums text-muted-foreground">{list.length}</span>
+                  </summary>
+                  <ul className="mt-2 flex flex-col gap-1 pl-6 text-sm">
+                    {list.map((s, i) => (
+                      <li key={i} className="min-w-0">
+                        <span className="block truncate">{s.title}</span>
+                        <span className="block truncate text-xs text-muted-foreground">{s.company}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
               ))}
-            </ul>
+            </div>
           )}
         </CardContent>
       </Card>
 
       <Card className="xl:col-span-2">
         <CardHeader>
-          <CardTitle>Saved jobs</CardTitle>
+          <CardTitle>Re-check saved jobs</CardTitle>
           <CardDescription>
-            Filters apply to new jobs as discovery finds them. After changing them, apply them to jobs already saved:
-            jobs that no longer match are removed (jobs you&apos;ve applied to are always kept).
+            Changed your filters? They only apply to postings found from now on. Check the jobs already saved to see which
+            no longer pass, then remove them. Jobs you&apos;ve applied to always stay.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -187,6 +198,21 @@ async function SearchCriteria() {
       </Section>
     </div>
   );
+}
+
+/** What each skip reason means, in words. */
+const SKIP_REASON: Record<string, string> = {
+  title: "Title words didn't match",
+  age: "Posted too long ago",
+  location: "Location not on your list",
+  "work type": "Work type not wanted",
+};
+
+/** Skipped postings grouped by why, the largest group first. */
+function byReason<T extends { reason: string }>(samples: T[]): [string, T[]][] {
+  const groups = new Map<string, T[]>();
+  for (const s of samples) groups.set(s.reason, [...(groups.get(s.reason) ?? []), s]);
+  return [...groups.entries()].sort((a, b) => b[1].length - a[1].length);
 }
 
 /** One step of the search, with what it's for, and its cards (two a row on a wide screen). */

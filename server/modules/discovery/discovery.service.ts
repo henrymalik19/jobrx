@@ -231,7 +231,7 @@ export async function runDiscover(deps: DiscoverDeps): Promise<DiscoverSummary> 
 }
 
 /** What a cleanup did. */
-export type PruneResult = { checked: number; removed: number; kept: number };
+export type PruneResult = { checked: number; removed: number; kept: number; examples: string[] };
 
 /**
  * Re-applies the discovery filters (title, work type, location and posting
@@ -240,14 +240,14 @@ export type PruneResult = { checked: number; removed: number; kept: number };
  * is deleted. Pass every user (the web app can only read its own filters, so
  * from there it is right only while one user exists).
  */
-export async function pruneSavedJobs(db: Db, userIds: string[], now: Date): Promise<PruneResult> {
+export async function pruneSavedJobs(db: Db, userIds: string[], now: Date, opts: { dryRun?: boolean } = {}): Promise<PruneResult> {
   const [jobs, filters, applied] = await Promise.all([
     listJobsForFiltering(db),
     loadFilters(db, userIds),
     listJobIdsWithApplications(db),
   ]);
-  if (filters.length === 0) return { checked: jobs.length, removed: 0, kept: jobs.length };
-  const remove = jobs
+  if (filters.length === 0) return { checked: jobs.length, removed: 0, kept: jobs.length, examples: [] };
+  const out = jobs
     .filter((j) => !applied.has(j.id))
     .filter(
       (j) =>
@@ -256,8 +256,9 @@ export async function pruneSavedJobs(db: Db, userIds: string[], now: Date): Prom
           filters,
           now,
         ) !== null,
-    )
-    .map((j) => j.id);
-  await deleteJobs(db, remove);
-  return { checked: jobs.length, removed: remove.length, kept: jobs.length - remove.length };
+    );
+  const remove = out.map((j) => j.id);
+  // A dry run only says what would go (`examples`: a few titles).
+  if (!opts.dryRun) await deleteJobs(db, remove);
+  return { checked: jobs.length, removed: remove.length, kept: jobs.length - remove.length, examples: out.slice(0, 5).map((j) => j.title) };
 }

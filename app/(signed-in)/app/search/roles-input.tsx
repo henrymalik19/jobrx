@@ -1,6 +1,6 @@
 "use client";
 
-import { GripVertical, X } from "lucide-react";
+import { ArrowUp, GripVertical, X } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import type { JobTitleSuggestion } from "@/server/modules/criteria/job-titles";
@@ -13,7 +13,8 @@ const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLow
 
 /**
  * Target roles as chips: type to get job titles employers use (from the jobs seen), Enter or comma to add what
- * you typed, drag to reorder. Saved with the form as one comma-separated field, as before.
+ * you typed, drag to reorder (on a phone, where dragging doesn't work, an arrow moves one up). Saved with the form as
+ * one comma-separated field, as before.
  */
 export function RolesInput({ defaultValue }: { defaultValue: string[] }) {
   const [roles, setRoles] = useState(defaultValue);
@@ -96,7 +97,12 @@ export function RolesInput({ defaultValue }: { defaultValue: string[] }) {
               onDragEnd={() => setDragging(null)}
               className={`flex items-center gap-1 rounded-full border py-1 pr-1 pl-1.5 text-sm ${i < LINKEDIN_SEARCHED ? "border-primary/40 bg-primary/10" : "bg-muted"} ${dragging === i ? "opacity-50" : ""}`}
             >
-              <GripVertical className="size-3.5 shrink-0 cursor-grab text-muted-foreground" aria-hidden />
+              <GripVertical className="size-3.5 shrink-0 cursor-grab text-muted-foreground max-md:hidden" aria-hidden />
+              {i > 0 && (
+                <button type="button" onClick={() => move(i, i - 1)} aria-label={`Move ${role} up`} className="rounded-full p-0.5 text-muted-foreground hover:bg-background hover:text-foreground md:hidden">
+                  <ArrowUp className="size-3.5" />
+                </button>
+              )}
               <span>{role}</span>
               {i < LINKEDIN_SEARCHED && <span className="rounded-full bg-primary/15 px-1.5 text-[10px] font-medium text-primary" title="The runner searches LinkedIn for this role">LinkedIn search</span>}
               <button type="button" onClick={() => remove(i)} aria-label={`Remove ${role}`} className="rounded-full p-0.5 text-muted-foreground hover:bg-background hover:text-foreground">
@@ -144,7 +150,9 @@ export function RolesInput({ defaultValue }: { defaultValue: string[] }) {
         )}
       </div>
       <p className="text-xs text-muted-foreground">
-        Type titles employers use; Enter adds what you typed. The runner searches LinkedIn for the first {LINKEDIN_SEARCHED}: drag to choose which.
+        Type titles employers use; Enter adds what you typed. The runner searches LinkedIn for the first {LINKEDIN_SEARCHED}:{" "}
+        <span className="max-md:hidden">drag to choose which.</span>
+        <span className="md:hidden">move one up with its arrow.</span>
       </p>
     </div>
   );

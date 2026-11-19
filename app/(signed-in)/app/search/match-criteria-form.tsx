@@ -65,10 +65,14 @@ export function MatchCriteriaForm({ values }: { values: Omit<MatchCriteriaValues
 
       <fieldset className="flex flex-col gap-2">
         <legend className="mb-2 text-sm font-medium">Seniority to keep (titles with no level always pass; none checked keeps all)</legend>
-        <div className="flex flex-wrap gap-x-5 gap-y-2">
+        {/* Chips you tap on and off: a short, fixed list, so all of them show (no searching needed). */}
+        <div className="flex flex-wrap gap-2">
           {LEVELS.map(([value, label]) => (
-            <label key={value} className="flex items-center gap-2 text-sm">
-              <input type="checkbox" name="seniority" value={value} defaultChecked={values.seniority.includes(value)} className={checkbox} />
+            <label
+              key={value}
+              className="cursor-pointer rounded-full border px-3 py-1.5 text-sm transition-colors select-none hover:bg-muted has-[:checked]:border-primary has-[:checked]:bg-primary has-[:checked]:text-primary-foreground has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring"
+            >
+              <input type="checkbox" name="seniority" value={value} defaultChecked={values.seniority.includes(value)} className="sr-only" />
               {label}
             </label>
           ))}
