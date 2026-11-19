@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/shared/cn";
 import { APPLY_STEP_TITLE, TONE_BADGE } from "../../_components/status";
+import { RemoteFields } from "./remote-fields";
 import { formAction, liveViewAction, pauseLinkedInAction, pauseRunnerAction, restartRunnerAction, type ControlResult, type LiveView } from "./actions";
 
 /** Runs a control action, then shows the view it answers with, or its error. */
@@ -202,6 +203,16 @@ export function LiveRunner() {
                 {f.shotAt && <span className="text-xs text-muted-foreground">{since(f.shotAt, now)}</span>}
               </div>
               {f.note && <p className="line-clamp-2 text-xs text-muted-foreground" title={f.note}>{f.note}</p>}
+              {f.step === "waiting_for_you" && view.running && (
+                <RemoteFields
+                  applicationId={f.applicationId}
+                  fields={view.left[f.applicationId]?.fields ?? []}
+                  sentAt={view.given[f.applicationId]?.at}
+                  leftAt={view.left[f.applicationId]?.at}
+                  now={now}
+                  onView={setView}
+                />
+              )}
               <FormControls form={f} view={view} onView={setView} now={now} />
             </div>
           </article>

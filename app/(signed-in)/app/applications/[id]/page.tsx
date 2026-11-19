@@ -26,6 +26,8 @@ import { runnerFills, SiteBadge } from "../../../_components/site-badge";
 import { LiveRefresh } from "../../../_components/live-refresh";
 import { APPLY_STEP_TITLE, backLink, statusInfo, todoHref, TONE_BADGE, type Tone } from "../../../_components/status";
 import { LaneNav } from "../lane-nav";
+import { RemoteFields } from "../../applying/remote-fields";
+import { getLeftFields, getRunnerControl } from "@/server/modules/apply/runner-control";
 import { isTabId, laneHref, laneItems, laneOf, lanePosition, TABS, type TabId } from "../../todo/lanes";
 import { DecideActions, MarkAppliedButton, RebuildResumeButton, RetryApplyButton } from "../decide-actions";
 import { isResumeOutdated, recheckOpenQuestions, RESUME_STATUSES, RULES_VERSION } from "@/server/modules/prepare/prepare.service";
@@ -398,6 +400,10 @@ async function ApplicationDetail({ params, searchParams }: { params: Params; sea
     getCompanyLimit(db, owner.id, app.job.company_id, new Date()),
   ]);
   const url = resume?.pdf_path ? await signedPdfUrl(db, resume.pdf_path).catch(() => null) : null;
+  // Waiting for you in Chrome with boxes empty: answered here, the runner types them in.
+  const waitingOn = app.status === "approved" && app.apply_step === "waiting_for_you"
+    ? await Promise.all([getLeftFields(db, owner.id), getRunnerControl(db, owner.id)]).catch(() => null)
+    : null;
   // Only while it can still be sent: before submitting, and not while the runner is filling it.
   const sendable = ["queued", "manual"].includes(app.status) || (app.status === "approved" && !app.apply_step);
   const stale = !!resume && sendable && (await isResumeOutdated(db, owner.id, resume).catch(() => false));
@@ -471,6 +477,15 @@ async function ApplicationDetail({ params, searchParams }: { params: Params; sea
       </header>
 
       <NextStep app={app} blockers={blockers} flags={flags} skip={skip} limit={limit} />
+      {waitingOn && (
+        <RemoteFields
+          applicationId={app.id}
+          fields={waitingOn[0][app.id]?.fields ?? []}
+          sentAt={waitingOn[1].fills[app.id]?.at}
+          leftAt={waitingOn[0][app.id]?.at}
+          now={now.getTime()}
+        />
+      )}
       {/* Not sent yet: the company may not take it until a date. */}
       {["needs_input", "queued", "manual", "approved"].includes(app.status) && <CompanyLimitNotice company={app.job.company_name} limit={limit} />}
 

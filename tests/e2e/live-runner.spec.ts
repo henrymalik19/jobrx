@@ -13,7 +13,7 @@ test.beforeEach(async () => {
 });
 test.afterEach(async () => {
   if (shot) await db.storage.from("apply-runs").remove([shot]);
-  await db.from("user_settings").delete().eq("user_id", E2E_USER.id).in("key", ["runner_live_view", "apply_runner", "apply_runner_control"]);
+  await db.from("user_settings").delete().eq("user_id", E2E_USER.id).in("key", ["runner_live_view", "apply_runner", "apply_runner_control", "apply_runner_left"]);
   await seed.cleanup();
 });
 
@@ -81,4 +81,32 @@ test("controls the runner from the page: pause, restart, and submit a waiting fo
   await live.getByRole("button", { name: "Submit now" }).click();
   await expect(live.getByText("Submitting…")).toBeVisible();
   expect((await control()).forms?.[app.id]?.action).toBe("submit");
+});
+
+test("answers a waiting form's empty boxes from the page, for the runner to type in", async ({ page }) => {
+  const app = await seed.application("left", "approved", { apply_step: "waiting_for_you", apply_note: "Filled. Left for you: \"LinkedIn\"." });
+  const now = new Date().toISOString();
+  await db.from("user_settings").upsert({ user_id: E2E_USER.id, key: "apply_runner", value: { version: "", message: "", localChanges: false, startedAt: now, seenAt: now, behind: false, stoppedAt: null, autoUpdate: true } });
+  // What the runner said is empty on the form.
+  await db.from("user_settings").upsert({
+    user_id: E2E_USER.id, key: "apply_runner_left",
+    value: { [app.id]: { at: now, fields: [{ key: "q:linkedin", label: "LinkedIn", kind: "text", options: [] }, { key: "q:end month", label: "End date month", kind: "select", options: ["January", "February"] }] } },
+  });
+
+  await page.goto("/app/applying");
+  const live = page.getByRole("region", { name: "Open in Chrome now" });
+  await live.getByLabel("LinkedIn", { exact: true }).fill("https://www.linkedin.com/in/e2e");
+  await live.getByLabel("End date month").selectOption("February");
+  await live.getByRole("button", { name: "Fill it in" }).click();
+  const sent = async () => {
+    const { data } = await db.from("user_settings").select("value").eq("user_id", E2E_USER.id).eq("key", "apply_runner_control").maybeSingle();
+    return (data?.value as { fills?: Record<string, { values: Record<string, string[]> }> } | undefined)?.fills?.[app.id]?.values ?? null;
+  };
+  await expect.poll(sent).toEqual({ "q:linkedin": ["https://www.linkedin.com/in/e2e"], "q:end month": ["February"] });
+  // Until the runner says what's empty again, it's typing them in.
+  await expect(live.getByRole("button", { name: "Typing it in…" })).toBeDisabled();
+
+  // The application's own page has the same boxes.
+  await page.goto(`/app/applications/${app.id}`);
+  await expect(page.getByLabel("LinkedIn", { exact: true })).toBeVisible();
 });

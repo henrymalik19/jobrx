@@ -324,6 +324,30 @@ describe("apply runner", () => {
     expect(await app(id)).toMatchObject({ status: "submitted", apply_step: null });
   });
 
+  it("types your answers from the app into a waiting form's empty boxes, and keeps them for a retry", async () => {
+    const id = await addApproved("fill-from-app");
+    const [job] = (await listReadyToApply(db, userId, ["greenhouse"])).filter((a) => a.id === id);
+    const fake = fakeDriver({ neverSubmitted: true, open: [{ key: "question_77", label: "LinkedIn profile", kind: "text", options: [] }] });
+    const driver: FormDriver = { ...fake.driver, confirmation: async () => (fake.submits.length ? "Thank you for applying." : null) };
+    const reports: string[][] = [];
+    let looks = 0;
+    const before = await streak();
+    const outcome = await applyOne({
+      ...deps(driver),
+      reportLeft: async (_id, fields) => void reports.push(fields.map((f) => f.key)),
+      fillsRequested: () => (++looks === 2 ? { question_77: ["https://www.linkedin.com/in/ada"] } : null),
+      requested: () => (looks === 4 ? ("submit" as const) : null),
+    }, job);
+    await db.from("platforms").update({ clean_streak: before?.clean_streak ?? 0 }).eq("user_id", userId).eq("ats", "greenhouse");
+    expect(outcome).toMatchObject({ result: "submitted" });
+    expect(fake.filled).toHaveProperty("question_77", "https://www.linkedin.com/in/ada");
+    // Told the app what was empty, then that nothing is.
+    expect(reports).toEqual([["question_77"], []]);
+    const { data: kept } = await db.from("field_mappings").select("value, learned, source").eq("user_id", userId).eq("field_name", "question_77").single();
+    await db.from("field_mappings").delete().eq("user_id", userId).eq("field_name", "question_77");
+    expect(kept).toEqual({ value: ["https://www.linkedin.com/in/ada"], learned: true, source: "you" });
+  });
+
   it("hands back a waiting form when you ask from the app, and closes it unsent", async () => {
     const id = await addApproved("handback-from-app");
     const [job] = (await listReadyToApply(db, userId, ["greenhouse"])).filter((a) => a.id === id);

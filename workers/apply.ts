@@ -39,7 +39,7 @@ import { saveApplyRun, type RunFile } from "@/server/modules/apply/apply-runs";
 import { parseApplyEnv } from "@/shared/env";
 import { shortSha } from "@/shared/version";
 import { reportRunnerStatus, type RunnerStatus } from "@/server/modules/apply/runner-status";
-import { CONTROL_POLL_MS, getRunnerControl, newFormActions, restartAsked, runnerControlSchema, type FormAction, type RunnerControl } from "@/server/modules/apply/runner-control";
+import { CONTROL_POLL_MS, getRunnerControl, newFills, newFormActions, reportLeftFields, restartAsked, runnerControlSchema, type FormAction, type LeftField, type RunnerControl } from "@/server/modules/apply/runner-control";
 import { checkForUpdate, pullUpdate, RESTART_EXIT } from "./apply-update";
 import { execFileSync } from "node:child_process";
 
@@ -208,6 +208,8 @@ async function main() {
   const uploadRun = (dir: string, app: { id: string; job: { title: string; company_name: string } }, startedAt: Date, outcome: string) =>
     uploadRunWith(db, { userId, userName: name }, dir, app, startedAt, outcome);
   const stale = await handBackUnfinished(db, userId);
+  // Nothing is open yet: what an earlier run said was left on its forms is gone with them.
+  await reportLeftFields(db, userId, {}).catch(() => undefined);
   if (stale) log(`moved ${stale} application(s) an earlier run left mid-way to Runner stuck`);
 
   let browser: BrowserContext | null = null;
@@ -498,6 +500,12 @@ async function main() {
   /** The time of the last action taken per form, and actions read but not yet taken by their run. */
   const formActionsDone = new Map<string, string>();
   const formActions = new Map<string, FormAction>();
+  /** Your answers for empty boxes, as for actions: the time of the last taken per form, and ones not yet typed in. */
+  const fillsDone = new Map<string, string>();
+  const fills = new Map<string, Record<string, string[]>>();
+  /** What's empty on each waiting form, for the app to ask (the runner is the only one that writes it). */
+  const leftByForm = new Map<string, { fields: LeftField[]; at: string }>();
+  const saveLeft = () => reportLeftFields(db, userId, Object.fromEntries(leftByForm)).catch((err) => log(`couldn't tell the app what's left on the forms: ${(err as Error).message}`));
   let controlBusy = false;
   const controlTimer = setInterval(() => {
     if (controlBusy || stopping) return;
@@ -519,6 +527,10 @@ async function main() {
         formActionsDone.set(id, next.forms[id].at);
         formActions.set(id, action);
       }
+      for (const [id, values] of newFills(next, waiting.keys(), fillsDone)) {
+        fillsDone.set(id, next.fills[id].at);
+        fills.set(id, values);
+      }
       // The app shows the runner went along with it.
       if (next.paused !== was.paused || next.linkedin_paused !== was.linkedin_paused) {
         lastReport = 0;
@@ -531,6 +543,17 @@ async function main() {
     const action = formActions.get(applicationId) ?? null;
     formActions.delete(applicationId);
     return action;
+  };
+  /** Your answers for a form's empty boxes from the app, once. */
+  const fillsRequested = (applicationId: string): Record<string, string[]> | null => {
+    const values = fills.get(applicationId) ?? null;
+    fills.delete(applicationId);
+    return values;
+  };
+  const reportLeft = async (applicationId: string, fields: LeftField[]) => {
+    if (fields.length) leftByForm.set(applicationId, { fields, at: new Date().toISOString() });
+    else if (!leftByForm.delete(applicationId)) return;
+    await saveLeft();
   };
   /** The tab of a waiting form you're looking at, if any. */
   const frontTab = async (): Promise<Page | null> => {
@@ -572,7 +595,7 @@ async function main() {
       let outcome = "error";
       let closeTab = false;
       try {
-        const result = await applyOne({ db, userId, driver: recorded, extraSteps: greenhouse ? greenhouseExtras(home, school, role) : [], readEmailCode: inbox?.waitForCode, mapFields, alternatives, askInApp, postingClosed, saveResume, fullName: name, email, log: both, filled, fillTurn, requested }, app);
+        const result = await applyOne({ db, userId, driver: recorded, extraSteps: greenhouse ? greenhouseExtras(home, school, role) : [], readEmailCode: inbox?.waitForCode, mapFields, alternatives, askInApp, postingClosed, saveResume, fullName: name, email, log: both, filled, fillTurn, requested, fillsRequested, reportLeft }, app);
         outcome =
           result.result === "submitted" ? "submitted"
           : result.result === "needs_answers" ? `questions for you: ${result.questions}`
@@ -601,6 +624,7 @@ async function main() {
       log(`${app.id}: failed: ${(err as Error).message}`);
     } finally {
       waiting.delete(app.id);
+      if (leftByForm.delete(app.id)) await saveLeft();
       if (liveTabs.delete(app.id)) await removeLiveShot(db, userId, app.id);
       open.delete(app.id);
       openSources.delete(app.id);

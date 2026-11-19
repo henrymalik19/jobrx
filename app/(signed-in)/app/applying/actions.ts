@@ -5,13 +5,16 @@ import { ValidationError } from "@/server/core/errors";
 import { loadLiveForms, wantLiveView, type LiveForm } from "@/server/modules/apply/live-view";
 import {
   FORM_ACTIONS,
+  getLeftFields,
   getRunnerControl,
+  requestFill,
   requestFormAction,
   requestRestart,
   restartAsked,
   setLinkedInPaused,
   setRunnerPaused,
   type FormAction,
+  type LeftField,
 } from "@/server/modules/apply/runner-control";
 import { getRunnerStatus, runnerRunning } from "@/server/modules/apply/runner-status";
 
@@ -29,13 +32,22 @@ export type LiveView = {
   canRestart: boolean;
   /** The last action asked of each form, by application id, with when. */
   asked: Record<string, { action: FormAction; at: string }>;
+  /** Each waiting form's empty boxes, as the runner last said, and your last answers sent for them. */
+  left: Record<string, { fields: LeftField[]; at: string }>;
+  given: Record<string, { at: string }>;
   forms: LiveForm[];
 };
 
 async function view(): Promise<LiveView> {
   const { db, owner } = await ownerContext();
   const now = new Date();
-  const [status, forms, control] = await Promise.all([getRunnerStatus(db, owner.id), loadLiveForms(db, owner.id), getRunnerControl(db, owner.id), wantLiveView(db, owner.id, now)]);
+  const [status, forms, control, left] = await Promise.all([
+    getRunnerStatus(db, owner.id),
+    loadLiveForms(db, owner.id),
+    getRunnerControl(db, owner.id),
+    getLeftFields(db, owner.id),
+    wantLiveView(db, owner.id, now),
+  ]);
   const running = status ? runnerRunning(status, now) : false;
   return {
     running,
@@ -46,6 +58,8 @@ async function view(): Promise<LiveView> {
     restarting: running && !!status && restartAsked(control, status.startedAt),
     canRestart: !!status?.autoUpdate,
     asked: control.forms,
+    left,
+    given: Object.fromEntries(Object.entries(control.fills).map(([id, f]) => [id, { at: f.at }])),
     forms,
   };
 }
@@ -94,4 +108,13 @@ export async function formAction(applicationId: string, action: FormAction): Pro
   const { db, owner } = await ownerContext();
   if (!FORM_ACTIONS.includes(action)) return { error: "Unknown action." };
   return control(() => requestFormAction(db, owner.id, String(applicationId), action, new Date()));
+}
+
+/** Your answers for a waiting form's empty boxes (by field key), for the runner to type in. */
+export async function fillFieldsAction(applicationId: string, values: Record<string, string[]>): Promise<ControlResult> {
+  const { db, owner } = await ownerContext();
+  const clean = Object.fromEntries(
+    Object.entries(values ?? {}).filter(([k, v]) => typeof k === "string" && Array.isArray(v)).map(([k, v]) => [k, v.map(String)]),
+  );
+  return control(() => requestFill(db, owner.id, String(applicationId), clean, new Date()));
 }

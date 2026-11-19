@@ -169,6 +169,20 @@ export type ApplyDeps = {
    * nothing. Without it, nothing is asked.
    */
   requested?: (applicationId: string) => "submit" | "hand_back" | null;
+  /**
+   * Your answers from the app for boxes still empty on a waiting form (by field key), newly asked since it last
+   * asked, once; null when none.
+   */
+  fillsRequested?: (applicationId: string) => Record<string, string[]> | null;
+  /** Tells the app which boxes on a waiting form are still empty, to answer there (none: nothing to show). */
+  reportLeft?: (applicationId: string, fields: OpenField[]) => Promise<void>;
+};
+
+/** A waiting form's boxes still empty, and how to fill them from the app (with the clock started again). */
+type Remote = {
+  leftNow: () => Promise<OpenField[]>;
+  /** Fills your answers; what took and what didn't, by label. */
+  fill: (values: Record<string, string[]>) => Promise<{ filled: string[]; failed: string[] }>;
 };
 
 /** How one run ended. */
@@ -297,11 +311,12 @@ const RESUBMIT_WAIT_MS = 2 * 60_000;
  * Waits for the confirmation page, keeping the last field values seen so
  * changes the user made can be found afterwards.
  */
-async function waitForConfirmation(deps: ApplyDeps, steps: FillStep[], app: ApplyJob, platform: Platform, waitMs?: number) {
+async function waitForConfirmation(deps: ApplyDeps, steps: FillStep[], app: ApplyJob, platform: Platform, waitMs?: number, remote?: Remote) {
   const { driver } = deps;
   const sleep = deps.sleep ?? defaultSleep;
   const pollMs = deps.pollMs ?? 2000;
-  const deadline = Date.now() + (deps.waitMs ?? waitMs ?? 30 * 60_000);
+  const wait = deps.waitMs ?? waitMs ?? 30 * 60_000;
+  let deadline = Date.now() + wait;
   let last: Record<string, string> = {};
   let askedForCheck = false;
   let askedForCode = false;
@@ -314,6 +329,25 @@ async function waitForConfirmation(deps: ApplyDeps, steps: FillStep[], app: Appl
     if (text != null) return { text, last };
     const refused = await driver.refused?.().catch(() => null);
     if (refused) return { refused, last };
+    const values = remote ? (deps.fillsRequested?.(app.id) ?? null) : null;
+    if (remote && values && Object.keys(values).length) {
+      // Your answers from the app: typed into the form, and the clock starts again (you're on it).
+      deadline = Date.now() + wait;
+      const done = await remote.fill(values).catch((err) => {
+        deps.log(`${app.id}: couldn't fill from the app: ${(err as Error).message}`);
+        return { filled: [] as string[], failed: Object.keys(values) };
+      });
+      const left = await remote.leftNow().catch(() => [] as OpenField[]);
+      await deps.reportLeft?.(app.id, left).catch(() => undefined);
+      const list = (labels: string[]) => labels.map((l) => `"${l}"`).join(", ");
+      const said = [
+        done.filled.length ? `Filled ${list(done.filled)} from the app.` : "",
+        done.failed.length ? `${list(done.failed)} didn't take what you gave.` : "",
+        left.length ? `Still empty: ${list(left.map((f) => f.label))}.` : "Nothing required is empty now: check it and Submit it.",
+      ].filter(Boolean).join(" ");
+      deps.log(`${app.id}: ${said}`);
+      await setApplyStep(deps.db, app.id, "waiting_for_you", said);
+    }
     const asked = deps.requested?.(app.id) ?? null;
     if (asked === "hand_back") return { handBack: true as const };
     if (asked === "submit") {
@@ -752,9 +786,43 @@ async function run(deps: ApplyDeps, app: ApplyJob): Promise<ApplyOutcome> {
 
   const extraSteps = [...extra.learned, ...extra.ai].map((e) => e.step);
   const waitMs = yours || left.length ? YOUR_STEPS_WAIT_MS : undefined;
+  // Boxes still empty, to answer in the app: a form in pages shows those on the page it's on; others list theirs.
+  const remote: Remote = {
+    leftNow: async () => {
+      const shown = paged
+        ? (await driver.pageQuestions!()).filter((q) => q.required && q.value.length === 0)
+        : driver.openFields ? await driver.openFields([]) : [];
+      return shown.filter((q) => q.kind !== "agreement").map(({ key, label, kind, options }) => ({ key, label, kind, options }));
+    },
+    fill: async (values) => {
+      const open = await remote.leftNow().catch(() => [] as OpenField[]);
+      const out = { filled: [] as string[], failed: [] as string[] };
+      for (const [key, value] of Object.entries(values)) {
+        if (!value.length || !value.some((v) => v.trim())) continue;
+        const field = open.find((x) => x.key === key) ?? { key, label: key.replace(/^q:/, ""), kind: "text" as const, options: [] };
+        if (await driver.fill(stepFor(field, value, field.label), resumePath)) {
+          out.filled.push(field.label);
+          // Kept as yours, so a retry (and other forms at this company) fill it.
+          await recordFieldOutcome(
+            db, userId, { ats: app.job.source, company: extra.company },
+            { fieldName: key, label: field.label, filled: value, final: undefined },
+            { fieldName: key, label: field.label, value, learned: true, confirmations: 0, source: "you" },
+          ).catch((err) => log(`${app.id}: couldn't keep your answer to "${field.label}": ${(err as Error).message}`));
+        } else out.failed.push(field.label);
+      }
+      // A form in pages goes on while its page has nothing required empty: to the review page, or the next stop.
+      for (let page = 0; paged && page < MAX_PAGES; page++) {
+        if ((await remote.leftNow()).length) break;
+        const moved = await driver.nextPage!(resumePath);
+        if (moved !== "next") break;
+      }
+      return out;
+    },
+  };
+  if (!(platform.mode === "auto" && !yours && !hold)) await deps.reportLeft?.(app.id, await remote.leftNow().catch(() => [])).catch(() => undefined);
   // Filled: the next application can be filled in another tab while this one waits.
   deps.filled?.();
-  let waited = await waitForConfirmation(deps, [...prepared, ...extraSteps], app, platform, waitMs);
+  let waited = await waitForConfirmation(deps, [...prepared, ...extraSteps], app, platform, waitMs, remote);
   if ("closed" in waited) return fail("The Chrome tab was closed before submitting.");
   if ("handBack" in waited) return { ...(await handBack(deps, app, "Handed back from the app.")), closeTab: true };
   const refusal = "refused" in waited ? waited.refused : null;
@@ -785,7 +853,7 @@ async function run(deps: ApplyDeps, app: ApplyJob): Promise<ApplyOutcome> {
     } finally {
       endTurn();
     }
-    waited = await waitForConfirmation(deps, [...prepared, ...extraSteps], app, platform, waitMs);
+    waited = await waitForConfirmation(deps, [...prepared, ...extraSteps], app, platform, waitMs, remote);
     if ("closed" in waited) return fail("The Chrome tab was closed before submitting.");
     if ("handBack" in waited) return { ...(await handBack(deps, app, "Handed back from the app.")), closeTab: true };
     if ("refused" in waited) return fail(`The site refused the submission twice, the second time a few minutes later: "${waited.refused}"`);
