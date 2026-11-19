@@ -39,6 +39,7 @@ import { saveApplyRun, type RunFile } from "@/server/modules/apply/apply-runs";
 import { parseApplyEnv } from "@/shared/env";
 import { shortSha } from "@/shared/version";
 import { reportRunnerStatus, type RunnerStatus } from "@/server/modules/apply/runner-status";
+import { CONTROL_POLL_MS, getRunnerControl, newFormActions, restartAsked, runnerControlSchema, type FormAction, type RunnerControl } from "@/server/modules/apply/runner-control";
 import { checkForUpdate, pullUpdate, RESTART_EXIT } from "./apply-update";
 import { execFileSync } from "node:child_process";
 
@@ -266,6 +267,8 @@ async function main() {
         : `the code changed since the runner started (now ${shortSha(now)}); restart it (Ctrl+C, then pnpm worker:apply) to run the new code`);
     }
     status.seenAt = new Date().toISOString();
+    status.paused = control.paused;
+    status.linkedinPaused = control.linkedin_paused;
     await reportRunnerStatus(db, userId, status).catch(() => undefined);
   };
 
@@ -417,7 +420,7 @@ async function main() {
   /** Whether another LinkedIn application may start now: on, not paused, none open, and under the caps. */
   const linkedinMayStart = async (): Promise<boolean> => {
     // Not while searching: one thing on LinkedIn at a time, as a person would.
-    if (!linkedinOn || linkedinPaused || searching) return false;
+    if (!linkedinOn || linkedinPaused || control.linkedin_paused || searching) return false;
     if ([...openSources.values()].includes("linkedin")) return false;
     const now = Date.now();
     if ((await linkedinSentSince(new Date(now - 3_600_000))) >= env.APPLY_LINKEDIN_PER_HOUR) return false;
@@ -489,6 +492,46 @@ async function main() {
       }
     })().finally(() => (liveBusy = false));
   }, LIVE_SHOT_MS);
+  // Control from the app (Applying, on your phone, say): pause, LinkedIn only, restart, and a waiting form's
+  // Submit it or Hand back. Read every few seconds; each request is done once.
+  let control: RunnerControl = runnerControlSchema.parse({});
+  /** The time of the last action taken per form, and actions read but not yet taken by their run. */
+  const formActionsDone = new Map<string, string>();
+  const formActions = new Map<string, FormAction>();
+  let controlBusy = false;
+  const controlTimer = setInterval(() => {
+    if (controlBusy || stopping) return;
+    controlBusy = true;
+    void (async () => {
+      const next = await getRunnerControl(db, userId).catch(() => null);
+      if (!next) return;
+      const was = control;
+      control = next;
+      if (next.paused !== was.paused) log(next.paused ? "paused from the app: no new applications start (what's open stays open)" : "resumed from the app");
+      if (next.linkedin_paused !== was.linkedin_paused) log(next.linkedin_paused ? "linkedin: paused from the app" : "linkedin: resumed from the app");
+      if (restartAsked(next, startedAt) && !update) {
+        if (status.autoUpdate) {
+          log("restart asked from the app: restarting once what's open is done (no new applications start meanwhile)");
+          update = "restart";
+        } else if (!restartAsked(was, startedAt)) log("restart asked from the app, but this runner can't restart itself (start it with pnpm worker:apply)");
+      }
+      for (const [id, action] of newFormActions(next, waiting.keys(), formActionsDone)) {
+        formActionsDone.set(id, next.forms[id].at);
+        formActions.set(id, action);
+      }
+      // The app shows the runner went along with it.
+      if (next.paused !== was.paused || next.linkedin_paused !== was.linkedin_paused) {
+        lastReport = 0;
+        await heartbeat();
+      }
+    })().finally(() => (controlBusy = false));
+  }, CONTROL_POLL_MS);
+  /** What you asked of a form from the app, once. */
+  const requested = (applicationId: string): FormAction | null => {
+    const action = formActions.get(applicationId) ?? null;
+    formActions.delete(applicationId);
+    return action;
+  };
   /** The tab of a waiting form you're looking at, if any. */
   const frontTab = async (): Promise<Page | null> => {
     for (const p of waiting.values()) {
@@ -529,7 +572,7 @@ async function main() {
       let outcome = "error";
       let closeTab = false;
       try {
-        const result = await applyOne({ db, userId, driver: recorded, extraSteps: greenhouse ? greenhouseExtras(home, school, role) : [], readEmailCode: inbox?.waitForCode, mapFields, alternatives, askInApp, postingClosed, saveResume, fullName: name, email, log: both, filled, fillTurn }, app);
+        const result = await applyOne({ db, userId, driver: recorded, extraSteps: greenhouse ? greenhouseExtras(home, school, role) : [], readEmailCode: inbox?.waitForCode, mapFields, alternatives, askInApp, postingClosed, saveResume, fullName: name, email, log: both, filled, fillTurn, requested }, app);
         outcome =
           result.result === "submitted" ? "submitted"
           : result.result === "needs_answers" ? `questions for you: ${result.questions}`
@@ -573,7 +616,7 @@ async function main() {
       let linkedinStarted = false;
       for (const app of ready) {
         // An update waiting: no new ones, so what's open finishes and it restarts (with more always ready, it never would).
-        if (stopping || update || open.size >= MAX_OPEN) break;
+        if (stopping || update || control.paused || open.size >= MAX_OPEN) break;
         if (app.job.source === "linkedin" && linkedinStarted) continue;
         // Waits for the form being filled to be filled; the ones waiting for you don't hold this up.
         const endTurn = await fillTurn();
@@ -592,7 +635,7 @@ async function main() {
       await checkSignIn();
       // Every 6 hours, when nothing on LinkedIn is open: new Easy Apply jobs for matching to score. It runs
       // alongside the applications (other sites go on filling); its tab isn't one of the MAX_OPEN open ones.
-      if (!searching && linkedinOn && !linkedinPaused && Date.now() - lastSearch > LINKEDIN_SEARCH_MS && ![...openSources.values()].includes("linkedin")) {
+      if (!searching && linkedinOn && !linkedinPaused && !control.linkedin_paused && !control.paused && Date.now() - lastSearch > LINKEDIN_SEARCH_MS && ![...openSources.values()].includes("linkedin")) {
         const previous = lastSearch;
         lastSearch = Date.now();
         await writeFile(LINKEDIN_SEARCH_FILE, JSON.stringify({ lastSearch: new Date(lastSearch).toISOString() })).catch(() => undefined);
@@ -611,6 +654,7 @@ async function main() {
   }
   await searching;
   clearInterval(liveTimer);
+  clearInterval(controlTimer);
   await rm(files, { recursive: true, force: true });
   // Set inside chrome(), which TypeScript can't follow from here.
   await (browser as BrowserContext | null)?.close().catch(() => undefined);

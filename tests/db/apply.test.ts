@@ -307,6 +307,33 @@ describe("apply runner", () => {
     expect((await app(id)).status).toBe("manual");
   });
 
+  it("submits a waiting form when you ask from the app, as you would", async () => {
+    const id = await addApproved("submit-from-app");
+    const [job] = (await listReadyToApply(db, userId, ["greenhouse"])).filter((a) => a.id === id);
+    const fake = fakeDriver({ neverSubmitted: true });
+    // Nobody clicks Submit in Chrome: it's sent once the app asks.
+    const driver: FormDriver = { ...fake.driver, confirmation: async () => (fake.submits.length ? "Thank you for applying." : null) };
+    let asks = 0;
+    const requested = () => (++asks === 3 ? ("submit" as const) : null);
+    const before = await streak();
+    const outcome = await applyOne({ ...deps(driver), requested }, job);
+    // A clean submit counts toward the streak; put it back for the tests after.
+    await db.from("platforms").update({ clean_streak: before?.clean_streak ?? 0 }).eq("user_id", userId).eq("ats", "greenhouse");
+    expect(outcome).toEqual({ result: "submitted", changed: [] });
+    expect(fake.submits).toHaveLength(1);
+    expect(await app(id)).toMatchObject({ status: "submitted", apply_step: null });
+  });
+
+  it("hands back a waiting form when you ask from the app, and closes it unsent", async () => {
+    const id = await addApproved("handback-from-app");
+    const [job] = (await listReadyToApply(db, userId, ["greenhouse"])).filter((a) => a.id === id);
+    const fake = fakeDriver({ neverSubmitted: true });
+    const outcome = await applyOne({ ...deps(fake.driver), requested: () => "hand_back" as const }, job);
+    expect(outcome).toEqual({ result: "handed_back", reason: "Handed back from the app.", closeTab: true });
+    expect(fake.submits).toHaveLength(0);
+    expect(await app(id)).toMatchObject({ status: "manual", apply_step: null, apply_note: "Handed back from the app." });
+  });
+
   it("hands back a form with a required question it can't answer", async () => {
     const id = await addApproved("blocked", { requiredUnanswered: true });
     const [job] = (await listReadyToApply(db, userId, ["greenhouse"])).filter((a) => a.id === id);

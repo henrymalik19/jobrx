@@ -27,6 +27,10 @@ export const runnerStatusSchema = z.object({
   autoUpdate: z.boolean().optional(),
   /** Newer code is on GitHub but it won't pull it, and why (uncommitted changes, say); null when nothing's in the way. */
   updateBlocked: z.string().nullable().optional(),
+  /** Paused from the app (no new applications start); absent from runners before this. */
+  paused: z.boolean().optional(),
+  /** LinkedIn paused from the app. */
+  linkedinPaused: z.boolean().optional(),
 });
 /** One report, as saved. */
 export type RunnerStatus = z.infer<typeof runnerStatusSchema>;

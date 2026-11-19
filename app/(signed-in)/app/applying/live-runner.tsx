@@ -2,13 +2,113 @@
 
 // What the runner is doing right now: each form it has open in Chrome, with its step and a screenshot taken a
 // few seconds ago. Asked for every few seconds while the page is in view (which keeps the runner taking them);
-// hidden, it stops asking, and the runner stops soon after.
+// hidden, it stops asking, and the runner stops soon after. It's also where you control the runner from anywhere:
+// pause it, pause LinkedIn, restart it, and submit or hand back a form waiting for you.
+import { Pause, Play, RotateCw, Send, Undo2 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/shared/cn";
 import { APPLY_STEP_TITLE, TONE_BADGE } from "../../_components/status";
-import { liveViewAction, type LiveView } from "./actions";
+import { formAction, liveViewAction, pauseLinkedInAction, pauseRunnerAction, restartRunnerAction, type ControlResult, type LiveView } from "./actions";
+
+/** Runs a control action, then shows the view it answers with, or its error. */
+function useControl(onView: (v: LiveView) => void) {
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const run = (action: () => Promise<ControlResult>) =>
+    start(async () => {
+      setError(null);
+      const result = await action().catch((): ControlResult => ({ error: "That didn't go through; try again." }));
+      if (result.error) setError(result.error);
+      if (result.view) onView(result.view);
+    });
+  return { pending, error, run };
+}
+
+/** The runner on or off, and its controls: pause, LinkedIn only, restart. */
+function RunnerBar({ view, onView, now }: { view: LiveView; onView: (v: LiveView) => void; now: number }) {
+  const { pending, error, run } = useControl(onView);
+  const state = !view.running
+    ? `Runner is off${view.seenAt ? ` (last seen ${since(view.seenAt, now)})` : ""}.`
+    : view.restarting
+      ? "Restarting once what's open is done; nothing new starts meanwhile."
+      : view.paused
+        ? view.pausedSeen ? "Paused: nothing new starts. What's open stays open." : "Pausing…"
+        : view.linkedinPaused
+          ? "Runner is on; LinkedIn is paused."
+          : "Runner is on.";
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="flex items-center text-sm text-muted-foreground" role="status">
+          <span className={cn("mr-2 inline-block size-2 rounded-full", !view.running ? "bg-zinc-400" : view.paused ? "bg-amber-500" : "bg-emerald-500")} />
+          {state}
+        </span>
+        {view.running && (
+          <span className="flex flex-wrap items-center gap-1.5">
+            <Button type="button" size="sm" variant="outline" disabled={pending} onClick={() => run(() => pauseRunnerAction(!view.paused))}>
+              {view.paused ? <><Play /> Resume</> : <><Pause /> Pause</>}
+            </Button>
+            <Button type="button" size="sm" variant="outline" disabled={pending} onClick={() => run(() => pauseLinkedInAction(!view.linkedinPaused))}>
+              {view.linkedinPaused ? <><Play /> Resume LinkedIn</> : <><Pause /> Pause LinkedIn</>}
+            </Button>
+            {view.canRestart && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={pending || view.restarting}
+                title="Restarts on the latest code once what's open is done"
+                onClick={() => run(restartRunnerAction)}
+              >
+                <RotateCw /> Restart
+              </Button>
+            )}
+          </span>
+        )}
+      </div>
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </div>
+  );
+}
+
+/** Submit it (asked once more) or Hand back, for a form filled and waiting for you; then what was asked. */
+function FormControls({ form, view, onView, now }: { form: LiveView["forms"][number]; view: LiveView; onView: (v: LiveView) => void; now: number }) {
+  const { pending, error, run } = useControl(onView);
+  const [confirm, setConfirm] = useState(false);
+  const asked = view.asked[form.applicationId];
+  if (form.step !== "waiting_for_you" || !view.running) return null;
+  // Asked a moment ago and not done yet: the runner reads it within a few seconds.
+  const fresh = !!asked && now - new Date(asked.at).getTime() < 60_000;
+  if (fresh && !error) {
+    return <p className="text-xs text-muted-foreground" role="status">{asked.action === "submit" ? "Submitting…" : "Handing back…"}</p>;
+  }
+  return (
+    <div className="flex flex-col gap-1">
+      {confirm ? (
+        <div className="flex items-center gap-1.5">
+          <Button type="button" size="sm" disabled={pending} className="bg-success text-background hover:bg-success/85" onClick={() => run(() => formAction(form.applicationId, "submit"))}>
+            <Send /> Submit now
+          </Button>
+          <Button type="button" size="sm" variant="ghost" disabled={pending} onClick={() => setConfirm(false)}>Cancel</Button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-1.5">
+          <Button type="button" size="sm" variant="outline" disabled={pending} title="Clicks Submit on the form in Chrome, as it is now" onClick={() => setConfirm(true)}>
+            <Send /> Submit it
+          </Button>
+          <Button type="button" size="sm" variant="ghost" disabled={pending} title="Closes the form unsent; the application goes to Runner stuck" onClick={() => run(() => formAction(form.applicationId, "hand_back"))}>
+            <Undo2 /> Hand back
+          </Button>
+        </div>
+      )}
+      {confirm && <p className="text-xs text-muted-foreground">Sends the form as the screenshot shows it.</p>}
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </div>
+  );
+}
 
 const EVERY_MS = 5_000;
 
@@ -64,19 +164,17 @@ export function LiveRunner() {
   if (!view) return null;
   if (view.forms.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground">
-        <span className={cn("mr-2 inline-block size-2 rounded-full align-middle", view.running ? "bg-emerald-500" : "bg-zinc-400")} />
-        {view.running ? "Runner is on; nothing open in Chrome right now." : `Runner is off${view.seenAt ? ` (last seen ${since(view.seenAt, now)})` : ""}.`}
-      </p>
+      <section aria-label="Runner" className="flex flex-col gap-1">
+        <RunnerBar view={view} onView={setView} now={now} />
+        {view.running && <p className="text-sm text-muted-foreground">Nothing open in Chrome right now.</p>}
+      </section>
     );
   }
   const zoomed = view.forms.find((f) => f.applicationId === big);
   return (
     <section aria-label="Open in Chrome now" className="flex flex-col gap-2">
-      <h2 className="flex items-center gap-2 text-sm font-medium">
-        <span className={cn("inline-block size-2 rounded-full", view.running ? "animate-pulse bg-emerald-500" : "bg-zinc-400")} />
-        Open in Chrome now
-      </h2>
+      <RunnerBar view={view} onView={setView} now={now} />
+      <h2 className="text-sm font-medium">Open in Chrome now</h2>
       <div className="flex gap-3 overflow-x-auto pb-1">
         {view.forms.map((f) => (
           <article key={f.applicationId} className="flex w-64 shrink-0 flex-col gap-2 rounded-lg border bg-card p-2 sm:w-72">
@@ -104,6 +202,7 @@ export function LiveRunner() {
                 {f.shotAt && <span className="text-xs text-muted-foreground">{since(f.shotAt, now)}</span>}
               </div>
               {f.note && <p className="line-clamp-2 text-xs text-muted-foreground" title={f.note}>{f.note}</p>}
+              <FormControls form={f} view={view} onView={setView} now={now} />
             </div>
           </article>
         ))}

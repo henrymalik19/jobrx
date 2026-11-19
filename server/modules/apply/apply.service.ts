@@ -164,6 +164,11 @@ export type ApplyDeps = {
    * open ones, so others' applications there expire too.
    */
   postingClosed?: (applicationId: string) => Promise<void>;
+  /**
+   * What you asked of this form from the app since it last asked (submit it, or hand it back), once; null when
+   * nothing. Without it, nothing is asked.
+   */
+  requested?: (applicationId: string) => "submit" | "hand_back" | null;
 };
 
 /** How one run ended. */
@@ -282,6 +287,9 @@ async function notTaken(deps: ApplyDeps, app: ApplyJob, said: string): Promise<E
   return { result: "handed_back", reason, closeTab: true };
 }
 
+/** How long after submitting from the app it waits for the confirmation before saying it didn't go through. */
+const SUBMIT_FROM_APP_MS = 20_000;
+
 /** How long to wait before submitting again after the site refused a submission (it suggests a few minutes). */
 const RESUBMIT_WAIT_MS = 2 * 60_000;
 
@@ -297,13 +305,36 @@ async function waitForConfirmation(deps: ApplyDeps, steps: FillStep[], app: Appl
   let last: Record<string, string> = {};
   let askedForCheck = false;
   let askedForCode = false;
+  /** When it submitted because you asked from the app, and whether it said that didn't go through. */
+  let submittedAt: number | null = null;
+  let saidNotThrough = false;
   while (Date.now() < deadline) {
     if (driver.closed()) return { closed: true as const };
     const text = await driver.confirmation();
     if (text != null) return { text, last };
     const refused = await driver.refused?.().catch(() => null);
     if (refused) return { refused, last };
-    if (platform.mode === "auto" && !askedForCheck && (await driver.challenge())) {
+    const asked = deps.requested?.(app.id) ?? null;
+    if (asked === "hand_back") return { handBack: true as const };
+    if (asked === "submit") {
+      // Your values as they are now, for what you changed; then Submit, as you would.
+      try {
+        last = { ...last, ...(await driver.values(steps)) };
+      } catch {
+        // Keep the last values seen.
+      }
+      deps.log(`${app.id}: submitting, as asked from the app`);
+      await setApplyStep(deps.db, app.id, "submitting", "Submitting, as you asked from the app.");
+      await driver.submit().catch((err) => deps.log(`${app.id}: submit failed: ${(err as Error).message}`));
+      submittedAt = Date.now();
+      saidNotThrough = false;
+    }
+    if (submittedAt && !saidNotThrough && Date.now() - submittedAt > SUBMIT_FROM_APP_MS) {
+      // Still on the form: something on it needs you (a required field, a check).
+      saidNotThrough = true;
+      await waitForYou(deps, app, "Submitting from the app didn't go through: the form still needs something. Look at it in the Chrome window, or hand it back.");
+    }
+    if ((platform.mode === "auto" || submittedAt) && !askedForCheck && (await driver.challenge())) {
       // A check after an automatic submit is the user's to complete, never the runner's.
       askedForCheck = true;
       await waitForYou(deps, app, "Complete the verification check in the Chrome window.");
@@ -725,6 +756,7 @@ async function run(deps: ApplyDeps, app: ApplyJob): Promise<ApplyOutcome> {
   deps.filled?.();
   let waited = await waitForConfirmation(deps, [...prepared, ...extraSteps], app, platform, waitMs);
   if ("closed" in waited) return fail("The Chrome tab was closed before submitting.");
+  if ("handBack" in waited) return { ...(await handBack(deps, app, "Handed back from the app.")), closeTab: true };
   const refusal = "refused" in waited ? waited.refused : null;
   if (refusal && FINAL_REFUSAL.test(refusal)) return notTaken(deps, app, refusal);
   if ("refused" in waited) {
@@ -755,6 +787,7 @@ async function run(deps: ApplyDeps, app: ApplyJob): Promise<ApplyOutcome> {
     }
     waited = await waitForConfirmation(deps, [...prepared, ...extraSteps], app, platform, waitMs);
     if ("closed" in waited) return fail("The Chrome tab was closed before submitting.");
+    if ("handBack" in waited) return { ...(await handBack(deps, app, "Handed back from the app.")), closeTab: true };
     if ("refused" in waited) return fail(`The site refused the submission twice, the second time a few minutes later: "${waited.refused}"`);
   }
   if ("timedOut" in waited) return { ...(await fail(`Nobody submitted the form within ${yours ? "an hour" : "30 minutes"}.`)), closeTab: true };

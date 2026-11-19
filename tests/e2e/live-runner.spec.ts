@@ -13,7 +13,7 @@ test.beforeEach(async () => {
 });
 test.afterEach(async () => {
   if (shot) await db.storage.from("apply-runs").remove([shot]);
-  await db.from("user_settings").delete().eq("user_id", E2E_USER.id).in("key", ["runner_live_view", "apply_runner"]);
+  await db.from("user_settings").delete().eq("user_id", E2E_USER.id).in("key", ["runner_live_view", "apply_runner", "apply_runner_control"]);
   await seed.cleanup();
 });
 
@@ -49,4 +49,36 @@ test("shows what the runner has open in Chrome, with its screenshot", async ({ p
   await live.getByRole("button", { name: new RegExp(`Bigger screenshot of ${app.title}`) }).click();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
+test("controls the runner from the page: pause, restart, and submit a waiting form", async ({ page }) => {
+  const app = await seed.application("control", "approved", { apply_step: "waiting_for_you", apply_note: "Filled. Check the Chrome window and click Submit." });
+  const now = new Date().toISOString();
+  await db.from("user_settings").upsert({ user_id: E2E_USER.id, key: "apply_runner", value: { version: "", message: "", localChanges: false, startedAt: now, seenAt: now, behind: false, stoppedAt: null, autoUpdate: true, paused: false } });
+  const control = async () => {
+    const { data } = await db.from("user_settings").select("value").eq("user_id", E2E_USER.id).eq("key", "apply_runner_control").maybeSingle();
+    return (data?.value ?? {}) as { paused?: boolean; restart_at?: string | null; forms?: Record<string, { action: string }> };
+  };
+
+  await page.goto("/app/applying");
+  const live = page.getByRole("region", { name: "Open in Chrome now" });
+  await expect(live.getByText("Runner is on.")).toBeVisible();
+
+  // Pause: asked, and shown as pausing until the runner goes along with it.
+  await live.getByRole("button", { name: "Pause", exact: true }).click();
+  await expect(live.getByText("Pausing…")).toBeVisible();
+  expect((await control()).paused).toBe(true);
+  await live.getByRole("button", { name: "Resume", exact: true }).click();
+  await expect(live.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
+  expect((await control()).paused).toBe(false);
+
+  await live.getByRole("button", { name: "Restart" }).click();
+  await expect(live.getByText(/Restarting once what's open is done/)).toBeVisible();
+  expect((await control()).restart_at).toBeTruthy();
+
+  // Submit it asks once more, then asks the runner.
+  await live.getByRole("button", { name: "Submit it" }).click();
+  await live.getByRole("button", { name: "Submit now" }).click();
+  await expect(live.getByText("Submitting…")).toBeVisible();
+  expect((await control()).forms?.[app.id]?.action).toBe("submit");
 });
