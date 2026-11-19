@@ -13,19 +13,19 @@ export async function markNotified(db: Db, items: { id: string; status: string }
   }
 }
 
-/** When a user's last notification email went out, from `worker_runs` (worker `notify`), or null. */
+/** When a user's last digest went out, from `worker_runs` (worker `notify`, a run that sent one), or null. */
 export async function lastSentAt(db: Db, userId: string): Promise<Date | null> {
   const rows = unwrap(
     await db
       .from("worker_runs")
-      .select("started_at, counts")
+      .select("started_at")
       .eq("worker", "notify")
       .eq("user_id", userId)
       .eq("ok", true)
+      .gt("counts->sent", 0)
       .order("started_at", { ascending: false })
-      .limit(50),
+      .limit(1),
     "last notification",
   );
-  const sent = rows.find((r) => Number((r.counts as Record<string, number> | null)?.sent ?? 0) > 0);
-  return sent ? new Date(sent.started_at) : null;
+  return rows[0] ? new Date(rows[0].started_at) : null;
 }

@@ -16,7 +16,7 @@ export const WORKERS = [
   { name: "discover", does: "Checks every job board for new and closed postings.", perUser: false },
   { name: "match", does: "Scores new jobs against your profile and criteria.", perUser: true },
   { name: "prepare", does: "Turns your best matches into applications, up to the daily cap.", perUser: true },
-  { name: "notify", does: "Emails you when applications need you.", perUser: true },
+  { name: "notify", does: "Emails each person a daily digest of what changed and what needs them.", perUser: true },
 ] as const;
 
 /**

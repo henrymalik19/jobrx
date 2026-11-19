@@ -7,6 +7,7 @@ import { ValidationError } from "@/server/core/errors";
 import { setPublicHandle, setPublicPageEnabled } from "@/server/modules/public-page/public-page.service";
 import { setLinkedInResume } from "@/server/modules/apply/linkedin-resume";
 import { removePushSubscription, savePushSubscription, sendPush, type BrowserSubscription } from "@/server/modules/notifications/push";
+import { setDigestSettings } from "@/server/modules/notifications/notifications.service";
 
 /** Chooses the resume LinkedIn applications send (field `onFile` = "true": the one on LinkedIn; else tailored). */
 export async function setLinkedInResumeAction(formData: FormData) {
@@ -65,4 +66,24 @@ export async function removePushSubscriptionAction(endpoint: string): Promise<vo
 export async function sendTestPushAction(): Promise<number> {
   const { db, owner } = await ownerContext();
   return sendPush(db, owner.id, { title: "Jobrx alerts are on", body: "You'll hear here when the runner needs you, or a company writes back.", href: "/app/applying", tag: "test" });
+}
+
+/** State of the daily email form: an error, or that it saved. */
+export type DigestState = { error?: string; saved?: boolean };
+
+/** Saves the daily email: on or off, its time and time zone (fields `digest`, `digest_time`, `timezone`). */
+export async function setDigestAction(_prev: DigestState, formData: FormData): Promise<DigestState> {
+  const { db, owner } = await ownerContext();
+  try {
+    await setDigestSettings(db, owner.id, {
+      digest: formData.get("digest") === "off" ? "off" : "daily",
+      digest_time: String(formData.get("digest_time") ?? ""),
+      timezone: String(formData.get("timezone") ?? ""),
+    });
+    refresh();
+    return { saved: true };
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: err.message };
+    throw err;
+  }
 }

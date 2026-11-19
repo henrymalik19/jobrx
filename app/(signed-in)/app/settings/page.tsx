@@ -14,6 +14,9 @@ import { FormSkeleton } from "../../_components/skeletons";
 import { HandleForm } from "./handle-form";
 import { VersionsCard } from "./versions-card";
 import { PhoneAlerts } from "./phone-alerts";
+import { DigestForm } from "./digest-form";
+import { formatTime, getDigestSettings } from "@/server/modules/notifications/notifications.service";
+import { getUserSetting } from "@/server/modules/settings/settings.service";
 import { listPushDevices, vapidKeys } from "@/server/modules/notifications/push";
 import { cardsOnPhone } from "@/app/(signed-in)/_components/data-table";
 import { cn } from "@/shared/cn";
@@ -41,6 +44,37 @@ async function PhoneAlertsSetting() {
             ))}
           </ul>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Where the daily email goes: the address set for it, else the job inbox, else the one you sign in with. */
+async function digestAddress(db: Awaited<ReturnType<typeof ownerContext>>["db"], userId: string, to: string | null, email: string | null): Promise<string | null> {
+  if (to) return to;
+  const inbox = (await getUserSetting(db, userId, "job_inbox")) as { address?: unknown } | null;
+  return typeof inbox?.address === "string" ? inbox.address : email;
+}
+
+async function DigestSetting() {
+  const { db, owner } = await ownerContext();
+  const settings = await getDigestSettings(db, owner.id);
+  const to = await digestAddress(db, owner.id, settings.to, owner.email ?? null);
+  const on = settings.digest === "daily";
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          Daily email <Badge variant={on ? "secondary" : "outline"}>{on ? `${formatTime(settings.digest_time)}` : "Off"}</Badge>
+        </CardTitle>
+        <CardDescription>
+          One email a day{to ? <> to <span className="font-medium text-foreground">{to}</span></> : null}: replies, interview invites and
+          applications sent since the last one, and what&apos;s waiting on you. Skipped on days with nothing new. Live updates still come in the bell
+          and on your phone.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <DigestForm digest={settings.digest} time={settings.digest_time} timezone={settings.timezone} zones={Intl.supportedValuesOf("timeZone")} />
       </CardContent>
     </Card>
   );
@@ -190,6 +224,7 @@ export default function SettingsPage() {
     <main className="flex flex-col gap-6">
       <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
       <Suspense fallback={<FormSkeleton cards={2} />}>
+        <DigestSetting />
         <PhoneAlertsSetting />
         <PublicPageSetting />
         <ApplyRunnerSetting />

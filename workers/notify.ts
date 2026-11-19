@@ -1,8 +1,9 @@
 // Notify worker: for every user, first tracks the job inbox (replies move
-// applications: confirmed, rejected, interviewing, heard back), then emails a
-// digest of applications that need attention, from and to their job inbox (user
-// settings `job_inbox` and `notifications`). Railway runs it every 15 minutes
-// (notify service); the pipeline also chains it. Tracking needs JOB_INBOX_PASSWORD.
+// applications: confirmed, rejected, interviewing, heard back), then sends their
+// daily digest once it is due (user setting `notifications`: the time and time zone;
+// it goes to their job inbox, else the address they sign in with). Railway runs it
+// every 15 minutes (notify service); the pipeline also chains it. Tracking needs
+// JOB_INBOX_PASSWORD.
 //   pnpm worker:notify   (reads .env.local locally; Railway variables in production)
 import { createServiceClient } from "@/server/db/service-client";
 import { parseWorkerEnv } from "@/shared/env";

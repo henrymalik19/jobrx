@@ -38,10 +38,10 @@ function runSummary(w: WorkerHealth): string {
         ? `${n(c.queued)} ready · ${n(c.needs_input)} need you · ${n(c.manual)} can't fill${c.deferred ? ` · ${n(c.deferred)} over the daily cap` : ""}${c.restarted ? ` · ${n(c.restarted)} started over` : ""}${c.rechecked ? ` · ${n(c.rechecked)} rechecked` : ""}`
         : "nothing to prepare";
     case "notify":
-      if (c.sent) return `emailed ${n(c.applications)} applications`;
-      if (c.held_quiet) return `${n(c.due)} waiting for quiet hours to end`;
-      if (c.held_interval) return `${n(c.due)} waiting for the 15-minute gap`;
-      return "nothing new to send";
+      if (c.sent) return `sent the daily digest (${n(c.applications)} applications)`;
+      if (c.off) return "digest turned off";
+      if (c.not_yet) return "today's digest isn't due yet, or already went out";
+      return "nothing new for today's digest";
     default:
       return "";
   }
