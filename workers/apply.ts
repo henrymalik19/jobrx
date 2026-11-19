@@ -285,7 +285,7 @@ async function main() {
     if (blocked && blocked !== status.updateBlocked) log(`update: newer code is on GitHub, but ${blocked}; pull it yourself, then restart`);
     status.updateBlocked = blocked;
     if (step.kind === "pull" || step.kind === "restart") {
-      if (!update) log(step.kind === "pull" ? `update: newer code is on GitHub (${shortSha(step.remote ?? "")}); updating once nothing is open` : "update: restarting on the folder's new code once nothing is open");
+      if (!update) log(step.kind === "pull" ? `update: newer code is on GitHub (${shortSha(step.remote ?? "")}); updating once what's open is done (no new applications start meanwhile)` : "update: restarting on the folder's new code once what's open is done (no new applications start meanwhile)");
       update = step.kind;
       status.behind = true;
     }
@@ -572,7 +572,8 @@ async function main() {
       const ready = (await listReadyToApply(db, userId, APPLY_ATS)).filter((a) => !open.has(a.id) && (a.job.source !== "linkedin" || linkedinOk));
       let linkedinStarted = false;
       for (const app of ready) {
-        if (stopping || open.size >= MAX_OPEN) break;
+        // An update waiting: no new ones, so what's open finishes and it restarts (with more always ready, it never would).
+        if (stopping || update || open.size >= MAX_OPEN) break;
         if (app.job.source === "linkedin" && linkedinStarted) continue;
         // Waits for the form being filled to be filled; the ones waiting for you don't hold this up.
         const endTurn = await fillTurn();
