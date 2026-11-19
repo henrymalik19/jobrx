@@ -62,10 +62,11 @@ export function Pager({
   const disabled = "pointer-events-none opacity-50";
 
   return (
-    <div className="flex items-center justify-between gap-4 pt-3 text-sm text-muted-foreground">
-      <span className="tabular-nums">
+    <div className="flex items-center justify-between gap-2 pt-3 text-sm text-muted-foreground md:gap-4">
+      <span className="tabular-nums whitespace-nowrap max-md:text-xs">
         {page.from.toLocaleString()}–{page.to.toLocaleString()} of {page.total.toLocaleString()}
       </span>
+      {/* On a phone: arrows and "1 / 12", on one line. */}
       <div className="flex items-center gap-2">
         <Link
           href={href(page.page - 1)}
@@ -73,10 +74,11 @@ export function Pager({
           tabIndex={page.page <= 1 ? -1 : undefined}
           className={cn(link, page.page <= 1 && disabled)}
         >
-          <ChevronLeft aria-hidden /> Previous
+          <ChevronLeft aria-hidden /> <span className="max-md:sr-only">Previous</span>
         </Link>
-        <span className="tabular-nums">
-          Page {page.page} of {page.pageCount}
+        <span className="tabular-nums whitespace-nowrap">
+          <span className="max-md:hidden">Page {page.page} of {page.pageCount}</span>
+          <span className="md:hidden">{page.page} / {page.pageCount}</span>
         </span>
         <Link
           href={href(page.page + 1)}
@@ -84,7 +86,7 @@ export function Pager({
           tabIndex={page.page >= page.pageCount ? -1 : undefined}
           className={cn(link, page.page >= page.pageCount && disabled)}
         >
-          Next <ChevronRight aria-hidden />
+          <span className="max-md:sr-only">Next</span> <ChevronRight aria-hidden />
         </Link>
       </div>
     </div>

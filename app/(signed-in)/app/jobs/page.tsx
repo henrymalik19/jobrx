@@ -16,6 +16,7 @@ import { ago, formatSalary } from "@/shared/format";
 import { parsePage } from "@/shared/paginate";
 import { cardsOnPhone, Pager, scrollingTable } from "../../_components/data-table";
 import { AutoSubmitForm } from "./auto-submit-form";
+import { MoreFilters } from "./more-filters";
 import { TableSkeleton } from "../../_components/skeletons";
 import { cn } from "@/shared/cn";
 
@@ -27,7 +28,9 @@ function Filters({ filters }: { filters: JobFilters }) {
     // Dropdowns apply on change; the search box applies on Enter or Apply.
     <AutoSubmitForm className="flex flex-wrap items-end gap-3">
       {filters.sort !== "found" && <input type="hidden" name="sort" value={filters.sort} />}
-      <Input name="q" defaultValue={filters.q} placeholder="Title or company" className="w-64" aria-label="Search title or company" />
+      <Input name="q" defaultValue={filters.q} placeholder="Title or company" className="w-64 max-md:w-auto max-md:min-w-0 max-md:flex-1" aria-label="Search title or company" />
+      {/* On a phone the rest is behind a button, with how many are set (not counting the search). */}
+      <MoreFilters count={Object.keys(filtersToParams(filters)).filter((k) => k !== "q" && k !== "sort").length}>
       <NativeSelect name="match" defaultValue={filters.match} aria-label="Match">
         <NativeSelectOption value="relevant">Relevant (not ruled out)</NativeSelectOption>
         <NativeSelectOption value="matched">Matched (at or above threshold)</NativeSelectOption>
@@ -65,8 +68,11 @@ function Filters({ filters }: { filters: JobFilters }) {
         <NativeSelectOption value="closed">Closed</NativeSelectOption>
         <NativeSelectOption value="all">Open and closed</NativeSelectOption>
       </NativeSelect>
-      <Button type="submit">Apply</Button>
-      <Link href="/app/jobs" className={buttonVariants({ variant: "ghost" })}>Reset</Link>
+      <div className="flex items-center gap-2">
+        <Button type="submit">Apply</Button>
+        <Link href="/app/jobs" className={buttonVariants({ variant: "ghost" })}>Reset</Link>
+      </div>
+      </MoreFilters>
     </AutoSubmitForm>
   );
 }
@@ -173,7 +179,8 @@ async function Jobs({ searchParams }: { searchParams: SearchParams }) {
                         <Badge variant="secondary" className="ml-2">{REMOTE_LABEL[j.remote_type]}</Badge>
                       )}
                     </TableCell>
-                    <TableCell className="tabular-nums" data-label="Salary">{formatSalary(j.salary_min, j.salary_max, j.salary_currency) || "—"}</TableCell>
+                    {/* No salary: a dash in the table, nothing on a phone's card. */}
+                    <TableCell className={cn("tabular-nums", !formatSalary(j.salary_min, j.salary_max, j.salary_currency) && "max-md:hidden")} data-label="Salary">{formatSalary(j.salary_min, j.salary_max, j.salary_currency) || "—"}</TableCell>
                     <TableCell data-label="Site"><SiteBadge source={j.source} /></TableCell>
                     <TableCell className="text-muted-foreground" data-label="Posted">{j.posted_at ? ago(j.posted_at, now) : "—"}</TableCell>
                     <TableCell className="text-muted-foreground" data-label="Found">{ago(j.first_seen_at, now)}</TableCell>
