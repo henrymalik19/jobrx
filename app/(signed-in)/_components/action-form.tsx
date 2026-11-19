@@ -15,6 +15,7 @@ export function ActionForm({
   className,
   children,
   extraButtons,
+  stickySubmit = false,
 }: {
   action: (prev: FormMessageState, formData: FormData) => Promise<FormMessageState>;
   submitLabel: string;
@@ -22,12 +23,19 @@ export function ActionForm({
   children: ReactNode;
   /** Buttons shown next to submit (e.g. a delete button using formAction). */
   extraButtons?: ReactNode;
+  /** On a phone, the Save row stays at the bottom of the screen while the form scrolls (a long form). */
+  stickySubmit?: boolean;
 }) {
   const [state, formAction, pending] = useActionState<FormMessageState, FormData>(action, {});
   return (
     <form action={formAction} className={cn("flex flex-col gap-3", className)}>
       {children}
-      <div className="flex flex-wrap items-center gap-3">
+      <div
+        className={cn(
+          "flex flex-wrap items-center gap-3",
+          stickySubmit && "max-md:sticky max-md:bottom-0 max-md:z-10 max-md:-mx-4 max-md:border-t max-md:bg-card max-md:px-4 max-md:py-3",
+        )}
+      >
         <Button type="submit" disabled={pending}>{pending ? "Saving…" : submitLabel}</Button>
         {extraButtons}
         <FormMessage state={state} />

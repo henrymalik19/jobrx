@@ -26,7 +26,6 @@ import { cardsOnPhone, Pager } from "../../_components/data-table";
 import {
   addCertificationAction,
   addEducationAction,
-  addSkillsAction,
   removeItemAction,
   saveAuthorizationAction,
   saveEmploymentAction,
@@ -43,6 +42,9 @@ import { scrollingTable } from "../../_components/data-table";
 import { CLEARANCE_LEVELS } from "@/shared/clearance";
 import { FormSkeleton } from "../../_components/skeletons";
 import { SectionPicker } from "../../_components/section-picker";
+import { FoldSummary } from "../../_components/fold-summary";
+import { InfoTip } from "../../_components/info-tip";
+import { SkillBox } from "./skill-box";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? "";
@@ -54,6 +56,15 @@ const TABS = [
   ["answers", "Saved answers"],
 ] as const;
 type Tab = (typeof TABS)[number][0];
+
+/** What a job has on it, for its folded line: only what's there, or what to add when it has nothing. */
+function jobContents(responsibilities: number, skills: number): string {
+  if (!responsibilities && !skills) return "Add what you did there";
+  const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
+  return [responsibilities && plural(responsibilities, "responsibility").replace(/responsibilitys$/, "responsibilities"), skills && plural(skills, "skill")]
+    .filter(Boolean)
+    .join(" · ");
+}
 
 /** A labelled input. */
 function Field({ label, name, children, className }: { label: string; name: string; children?: ReactNode; className?: string }) {
@@ -159,9 +170,12 @@ function SavedAnswersTab({ answers }: { answers: SavedAnswer[] }) {
     <Card className="md:min-h-[20rem] md:flex-1">
       <CardHeader>
         <CardTitle>Saved answers ({answers.length})</CardTitle>
-        <CardDescription>
-          Questions asked the same way on every form (a background check, how you heard about a job): answered once under Needs
-          your answer, then filled in for you. Change one here and the next form uses it; delete one and forms ask you again.
+        <CardDescription className="flex items-center gap-1.5">
+          Answered once, filled in on every form that asks.
+          <InfoTip label="About saved answers">
+            Questions asked the same way on every form (a background check, how you heard about a job): answered once under Needs
+            your answer, then filled in for you. Change one here and the next form uses it; delete one and forms ask you again.
+          </InfoTip>
         </CardDescription>
       </CardHeader>
       <CardContent className="flex min-h-0 flex-1 flex-col">
@@ -201,22 +215,16 @@ function SkillsTab({ data, params }: { data: ProfileData; params: Record<string,
       <Card className={scrollingTable.card}>
         <CardHeader>
           <CardTitle>Skills ({data.skills.length})</CardTitle>
-          <CardDescription>
-            Years come from the jobs that used each skill; type a number only to correct it. Changes save as you make them. Find
-            duplicates has Claude spot the same skill under two names (which splits your years) and entries that aren&apos;t skills.
+          <CardDescription className="flex items-center gap-1.5">
+            Years come from your jobs; change one only to correct it.
+            <InfoTip label="About skills">
+              Years come from the jobs that used each skill; type a number only to correct it. Changes save as you make them. Find
+              duplicates has Claude spot the same skill under two names (which splits your years) and entries that aren&apos;t skills.
+            </InfoTip>
           </CardDescription>
         </CardHeader>
         <CardContent className={cn(scrollingTable.content, "gap-4")}>
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <form className="flex w-full gap-2 sm:w-auto" action="/app/profile">
-              <input type="hidden" name="tab" value="skills" />
-              <Input name="q" defaultValue={q} placeholder="Search skills" className="min-w-0 flex-1 sm:w-56 sm:flex-none" aria-label="Search skills" />
-              <Button type="submit" variant="outline">Search</Button>
-            </form>
-            <ActionForm action={addSkillsAction} submitLabel="Add skills" className="w-full flex-row items-start sm:w-auto">
-              <Input name="names" placeholder="Go, Kubernetes, GraphQL" className="min-w-0 flex-1 sm:w-64 sm:flex-none" aria-label="Skills to add" />
-            </ActionForm>
-          </div>
+          <SkillBox q={q} />
           <SkillCleanup />
           {page.total === 0 ? (
             <p className="text-sm text-muted-foreground">{q ? `No skills match “${q}”.` : "No skills yet."}</p>
@@ -297,7 +305,8 @@ async function Profile({ searchParams }: { searchParams: SearchParams }) {
 
       {tab === "basics" && (
         <>
-      <Card>
+      {/* Not clipped on a phone, so its Save can stay at the bottom of the screen. */}
+      <Card className="max-md:overflow-visible">
         <CardHeader>
           <CardTitle>Contact and summary</CardTitle>
           <CardDescription>Used to fill in application forms and at the top of your resume.</CardDescription>
@@ -306,7 +315,7 @@ async function Profile({ searchParams }: { searchParams: SearchParams }) {
           <Suspense fallback={null}>
             <ApplicationEmailStatus userId={owner.id} signInEmail={owner.email} />
           </Suspense>
-          <ActionForm action={saveProfileAction} submitLabel="Save profile" className="gap-5">
+          <ActionForm action={saveProfileAction} submitLabel="Save profile" className="gap-5" stickySubmit>
             <FieldGroup title="Name" hint="As it goes on applications.">
               <div className="grid gap-3 sm:grid-cols-3">
                 <Field label="First name" name="first_name"><Input id="first_name" name="first_name" defaultValue={p.first_name ?? ""} /></Field>
@@ -323,8 +332,8 @@ async function Profile({ searchParams }: { searchParams: SearchParams }) {
             <FieldGroup title="Location" hint="Answers &quot;where are you based?&quot; and fits the right work authorization.">
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-[2fr_1fr_1fr_1fr]">
                 <Field label="City" name="city" className="col-span-2 sm:col-span-1"><Input id="city" name="city" defaultValue={p.city ?? ""} /></Field>
-                <Field label="State" name="state"><Input id="state" name="state" defaultValue={p.state ?? ""} maxLength={2} placeholder="TX" /></Field>
-                <Field label="Country" name="country"><Input id="country" name="country" defaultValue={p.country} maxLength={2} placeholder="US" /></Field>
+                <Field label="State" name="state"><Input id="state" name="state" defaultValue={p.state ?? ""} maxLength={2} placeholder="e.g. TX" /></Field>
+                <Field label="Country" name="country"><Input id="country" name="country" defaultValue={p.country} maxLength={2} placeholder="e.g. US" /></Field>
                 <Field label="Postal code" name="postal_code" className="col-span-2 sm:col-span-1"><Input id="postal_code" name="postal_code" defaultValue={p.postal_code ?? ""} /></Field>
               </div>
             </FieldGroup>
@@ -357,7 +366,12 @@ async function Profile({ searchParams }: { searchParams: SearchParams }) {
       <Card>
         <CardHeader>
           <CardTitle>Work authorization</CardTitle>
-          <CardDescription>One row per country. Questions are answered for the posting&apos;s country; a country without a row goes to Needs you.</CardDescription>
+          <CardDescription className="flex items-center gap-1.5">
+            Where you can work, one country a row.
+            <InfoTip label="About work authorization">
+              One row per country. Questions are answered for the posting&apos;s country; a country without a row goes to Needs you.
+            </InfoTip>
+          </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           {data.workAuthorizations.length > 0 && (
@@ -378,14 +392,18 @@ async function Profile({ searchParams }: { searchParams: SearchParams }) {
               </TableBody>
             </Table>
           )}
-          <ActionForm action={saveAuthorizationAction} submitLabel="Add or replace">
-            <div className="grid gap-3 sm:grid-cols-4">
-              <Field label="Country (code)" name="country"><Input id="country" name="country" maxLength={2} placeholder="US" required /></Field>
-              <Field label="Can work there" name="authorized"><YesNoSelect name="authorized" value={true} allowBlank={false} /></Field>
-              <Field label="Needs sponsorship" name="requires_sponsorship"><YesNoSelect name="requires_sponsorship" value={false} allowBlank={false} /></Field>
-              <Field label="Status (optional)" name="status"><Input id="status" name="status" placeholder="US citizen" /></Field>
-            </div>
-          </ActionForm>
+          <details className="group rounded-lg border border-dashed p-4" open={data.workAuthorizations.length === 0}>
+            <FoldSummary className="font-medium">Add a country</FoldSummary>
+            <ActionForm action={saveAuthorizationAction} submitLabel="Save country" className="mt-4">
+              <div className="grid gap-3 sm:grid-cols-4">
+                <Field label="Country (code)" name="country"><Input id="country" name="country" maxLength={2} placeholder="e.g. US" required /></Field>
+                <Field label="Can work there" name="authorized"><YesNoSelect name="authorized" value={true} allowBlank={false} /></Field>
+                <Field label="Needs sponsorship" name="requires_sponsorship"><YesNoSelect name="requires_sponsorship" value={false} allowBlank={false} /></Field>
+                <Field label="Status (optional)" name="status"><Input id="status" name="status" placeholder="e.g. US citizen" /></Field>
+              </div>
+              <p className="text-xs text-muted-foreground">A country you already have is replaced.</p>
+            </ActionForm>
+          </details>
         </CardContent>
       </Card>
 
@@ -397,9 +415,12 @@ async function Profile({ searchParams }: { searchParams: SearchParams }) {
       <Card>
         <CardHeader>
           <CardTitle>Employment</CardTitle>
-          <CardDescription>
-            Newest first. Tailored resumes may reorder and reword these, never add to them. Years with a skill come from the
-            dates of the jobs that used it.
+          <CardDescription className="flex items-center gap-1.5">
+            Newest first. Resumes reword these but never add to them.
+            <InfoTip label="About employment">
+              Newest first. Tailored resumes may reorder and reword these, never add to them. Years with a skill come from the
+              dates of the jobs that used it.
+            </InfoTip>
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -409,21 +430,25 @@ async function Profile({ searchParams }: { searchParams: SearchParams }) {
             </p>
           )}
           {data.employment.map((job) => (
-            <details key={job.id} className="rounded-lg border p-4">
-              <summary className="flex cursor-pointer flex-wrap items-baseline gap-x-3 gap-y-1">
-                <span className="font-medium">{job.title}</span>
-                <span>{job.employer}</span>
-                <span className="text-sm text-muted-foreground">{employmentRange(job)}</span>
-                <span className="text-sm text-muted-foreground">{job.responsibilities.length} responsibilities · {job.skills.length} skills</span>
-              </summary>
+            <details key={job.id} className="group rounded-lg border p-4">
+              <FoldSummary>
+                <span className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                  <span className="font-medium">{job.title}</span>
+                  <span>{job.employer}</span>
+                  <span className="text-sm text-muted-foreground">{employmentRange(job)}</span>
+                  <span className={cn("text-sm", job.responsibilities.length || job.skills.length ? "text-muted-foreground" : "text-warning")}>
+                    {jobContents(job.responsibilities.length, job.skills.length)}
+                  </span>
+                </span>
+              </FoldSummary>
               <div className="mt-4 flex flex-col gap-3">
                 <EmploymentForm job={job} skillNames={skillNames} />
                 <div><RemoveButton kind="employments" id={job.id} label="Delete this job" /></div>
               </div>
             </details>
           ))}
-          <details className="rounded-lg border border-dashed p-4">
-            <summary className="cursor-pointer font-medium">Add a job</summary>
+          <details className="group rounded-lg border border-dashed p-4">
+            <FoldSummary className="font-medium">Add a job</FoldSummary>
             <div className="mt-4"><EmploymentForm skillNames={skillNames} /></div>
           </details>
         </CardContent>
@@ -442,8 +467,8 @@ async function Profile({ searchParams }: { searchParams: SearchParams }) {
               <RemoveButton kind="educations" id={e.id} />
             </div>
           ))}
-          <details className="rounded-lg border border-dashed p-4">
-            <summary className="cursor-pointer font-medium">Add education</summary>
+          <details className="group rounded-lg border border-dashed p-4">
+            <FoldSummary className="font-medium">Add education</FoldSummary>
           <ActionForm action={addEducationAction} submitLabel="Add education" className="mt-4">
             <div className={grid}>
               <Field label="School" name="institution"><Input id="institution" name="institution" required /></Field>
@@ -469,8 +494,8 @@ async function Profile({ searchParams }: { searchParams: SearchParams }) {
               <RemoveButton kind="certifications" id={c.id} />
             </div>
           ))}
-          <details className="rounded-lg border border-dashed p-4">
-            <summary className="cursor-pointer font-medium">Add a certification</summary>
+          <details className="group rounded-lg border border-dashed p-4">
+            <FoldSummary className="font-medium">Add a certification</FoldSummary>
           <ActionForm action={addCertificationAction} submitLabel="Add certification" className="mt-4">
             <div className={grid}>
               <Field label="Name" name="name"><Input id="name" name="name" required /></Field>
