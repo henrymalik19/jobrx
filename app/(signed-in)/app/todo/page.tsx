@@ -35,14 +35,8 @@ const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) 
 function Needs({ tab, app }: { tab: TabId; app: ApplicationWithDetails }) {
   if (tab === "answers") {
     const qs = blockingQuestions(app);
-    return (
-      <span>
-        <span className="font-medium text-warning">{qs.length} required question{qs.length === 1 ? "" : "s"}</span>
-        <span className="block truncate text-muted-foreground" title={qs.map((q) => q.question).join("\n")}>
-          {qs.map((q) => q.question).join(" · ")}
-        </span>
-      </span>
-    );
+    // The count only: the questions are on the application, and a cut-off line of them said little.
+    return <span className="font-medium text-warning">{qs.length} required question{qs.length === 1 ? "" : "s"} to answer</span>;
   }
   const steps = yourSteps(app);
   if (app.status === "manual" && steps.length === 0) {
