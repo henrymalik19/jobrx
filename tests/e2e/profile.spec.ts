@@ -46,3 +46,39 @@ test("on a phone: Save stays in reach, and folded sections say what they hold", 
     if (job) await db.from("employments").delete().eq("id", job.id);
   }
 });
+
+test("on a phone: a skill reads as two lines, name and delete, then years and proficiency", async ({ page }) => {
+  const name = `Alignskill${randomUUID().slice(0, 6)}`;
+  try {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/app/profile?tab=skills");
+    await page.getByRole("textbox", { name: "Find or add a skill" }).fill(name);
+    await page.getByRole("button", { name: "Add", exact: true }).click();
+    await expect(page.getByText("Added.")).toBeVisible();
+    const row = page.getByRole("row").filter({ hasText: name });
+    const at = async (label: string) => (await row.getByRole(label.startsWith("Remove") ? "button" : label.startsWith("Years") ? "spinbutton" : "combobox", { name: `${label} ${name}` }).boundingBox())!;
+    const [remove, years, level] = [await at("Remove"), await at("Years with"), await at("Proficiency in")];
+    const title = (await row.getByText(name, { exact: true }).boundingBox())!;
+    // Delete on the name's line; years and proficiency together on the next.
+    expect(Math.abs(remove.y + remove.height / 2 - (title.y + title.height / 2))).toBeLessThan(16);
+    expect(Math.abs(years.y - level.y)).toBeLessThan(4);
+    expect(years.y).toBeGreaterThan(title.y + title.height - 2);
+    if (process.env.E2E_SHOTS) await row.screenshot({ path: `${process.env.E2E_SHOTS}/skill-row-phone.png` });
+
+    // Removing asks nothing, and can be undone for a few seconds; after that it's gone.
+    await row.getByRole("button", { name: `Remove ${name}` }).click();
+    await expect(page.getByRole("status").filter({ hasText: `Removed ${name}.` })).toBeVisible();
+    await page.getByRole("button", { name: "Undo" }).click();
+    await expect(row.getByRole("button", { name: `Remove ${name}` })).toBeVisible();
+    await row.getByRole("button", { name: `Remove ${name}` }).click();
+    const kept = async () => {
+      const { data } = await db.from("skills").select("id, profile_skills!inner(user_id)").eq("name", name).eq("profile_skills.user_id", E2E_USER.id);
+      return data?.length ?? 0;
+    };
+    expect(await kept()).toBe(1);
+    await expect.poll(kept, { timeout: 12_000 }).toBe(0);
+  } finally {
+    const { data } = await db.from("skills").select("id").eq("name", name);
+    if (data?.length) await db.from("profile_skills").delete().eq("user_id", E2E_USER.id).in("skill_id", data.map((s) => s.id));
+  }
+});
