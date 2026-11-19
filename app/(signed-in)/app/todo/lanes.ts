@@ -4,24 +4,27 @@ import { listApplications, runnerHandedBack, type ApplicationWithDetails } from 
 
 /**
  * The two lanes waiting on you before approval, by the statuses each holds (ids match todoHref).
- * Ready to approve includes forms preparing found can't be filled automatically.
+ * Ready to approve includes forms preparing found can't be filled automatically. `hint` is the one line
+ * shown above the lane; `about` is the rest, behind its ⓘ.
  */
 export const TABS = [
   {
     id: "ready",
     label: "Ready to approve",
     statuses: ["queued", "manual"],
-    hint: "Every required question is answered, or the form can't be filled automatically (approve those to wait for the apply runner, or apply yourself). Open one to check it, then approve or skip.",
+    hint: "Check each one, then approve or skip.",
+    about: "Every required question is answered, or the form can't be filled automatically (approve those to wait for the apply runner, or apply yourself). Open one to check it, then approve or skip.",
     empty: "Nothing to approve. New applications are prepared after each matching run.",
   },
   {
     id: "answers",
     label: "Missing answers",
     statuses: ["needs_input"],
-    hint: "A required question couldn't be answered from your profile or saved answers. Open one to answer; once nothing is missing it moves to Ready to approve, and short answers fill in on other forms.",
+    hint: "Questions only you can answer. Your answers fill in on other forms too.",
+    about: "A required question couldn't be answered from your profile or saved answers. Open one to answer; once nothing is missing it moves to Ready to approve, and short answers fill in on other forms.",
     empty: "No questions waiting on you.",
   },
-] as const satisfies readonly { id: string; label: string; statuses: readonly AppStatus[]; hint: string; empty: string }[];
+] as const satisfies readonly { id: string; label: string; statuses: readonly AppStatus[]; hint: string; about: string; empty: string }[];
 
 /** A To do lane. */
 export type TabId = (typeof TABS)[number]["id"];

@@ -18,6 +18,7 @@ import { QuickDecide } from "./quick-decide";
 import { laneHref, splitLanes, TABS, type TabId } from "./lanes";
 import { TableSkeleton } from "../../_components/skeletons";
 import { SectionPicker } from "../../_components/section-picker";
+import { InfoTip } from "../../_components/info-tip";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -80,10 +81,13 @@ function UnmatchedEmails({ emails, unsorted, apps, now }: { emails: UnmatchedEma
   return (
     <Card className={scrollingTable.card}>
       <CardHeader>
-        <CardDescription>
-          Emails in the job inbox that email tracking couldn&apos;t place on its own: ones it couldn&apos;t tell the application
-          for, and ones it couldn&apos;t tell what they say. Link one and the application moves as if tracking had caught it (a
-          rejection to Closed, an interview to Interviewing); dismiss one that isn&apos;t about an application.
+        <CardDescription className="flex items-center gap-1.5">
+          Emails tracking couldn&apos;t place. Link each one to its application, or dismiss it.
+          <InfoTip label="About unmatched emails">
+            Emails in the job inbox that email tracking couldn&apos;t place on its own: ones it couldn&apos;t tell the application
+            for, and ones it couldn&apos;t tell what they say. Link one and the application moves as if tracking had caught it (a
+            rejection to Closed, an interview to Interviewing); dismiss one that isn&apos;t about an application.
+          </InfoTip>
         </CardDescription>
       </CardHeader>
       <CardContent className={scrollingTable.content}>
@@ -92,9 +96,12 @@ function UnmatchedEmails({ emails, unsorted, apps, now }: { emails: UnmatchedEma
         {unsorted.length > 0 && (
           <div className="mb-6 flex flex-col gap-2">
             <h2 className="text-sm font-medium">Couldn&apos;t tell what it says</h2>
-            <p className="text-sm text-muted-foreground">
-              From an applicant system or a company you applied to, but no rule recognized the wording. Pick what it says
-              and the application; it moves as if tracking had caught it.
+            <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+              Pick what it says and which application.
+              <InfoTip label="About emails it couldn't read">
+                From an applicant system or a company you applied to, but no rule recognized the wording. Pick what it says
+                and the application; it moves as if tracking had caught it.
+              </InfoTip>
             </p>
             <Table className={cardsOnPhone.table}>
               <TableBody>
@@ -225,7 +232,10 @@ async function Todo({ searchParams }: { searchParams: SearchParams }) {
 
       <Card className={scrollingTable.card}>
         <CardHeader>
-          <CardDescription>{current.hint}</CardDescription>
+          <CardDescription className="flex items-center gap-1.5">
+            {current.hint}
+            <InfoTip label={`About ${current.label}`}>{current.about}</InfoTip>
+          </CardDescription>
         </CardHeader>
         <CardContent className={scrollingTable.content}>
           {rows.length === 0 ? (
