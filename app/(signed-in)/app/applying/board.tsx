@@ -15,6 +15,7 @@ import {
 import { ChevronLeft, ChevronRight, Clock, Ellipsis } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useOptimistic, useRef, useState, useTransition, type ReactNode } from "react";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/shared/cn";
 import { TONE_BADGE, type Tone } from "../../_components/status";
@@ -84,10 +85,10 @@ const TARGET_LABEL: Record<string, string> = {
 };
 
 /**
- * Post-approval applications as columns. Drag a card to another column (on a
- * phone, press and hold it first), or use its Move menu, to record that you
- * applied, heard back, got an interview, an offer or a no; only moves the
- * database allows are offered. Dragging near the board's edge scrolls it, and so do the arrows at its edges.
+ * Post-approval applications as columns. Drag a card to another column, or use its Move menu, to record that you
+ * applied, heard back, got an interview, an offer or a no; only moves the database allows are offered. Dragging
+ * near the board's edge scrolls it, and so do the arrows at its edges. On a phone it's one column at a time,
+ * picked from a list, its cards down the page (move a card with its Move menu).
  */
 export function Board({ columns, cards, moves }: { columns: BoardColumn[]; cards: BoardCard[]; moves: Record<string, string[]> }) {
   const [shown, move] = useOptimistic(cards, (list, m: { id: string; to: string }) =>
@@ -96,6 +97,8 @@ export function Board({ columns, cards, moves }: { columns: BoardColumn[]; cards
   const [, startTransition] = useTransition();
   const [dragging, setDragging] = useState<BoardCard | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The column a phone shows: the first with cards in it, to start.
+  const [phoneLane, setPhoneLane] = useState(() => (columns.find((col) => cards.some((c) => col.statuses.includes(c.status))) ?? columns[0])?.key ?? "");
   const sensors = useSensors(
     // A small move starts a drag, so clicking the title, Apply or the Move menu still works.
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
@@ -129,12 +132,19 @@ export function Board({ columns, cards, moves }: { columns: BoardColumn[]; cards
     <DndContext id="applying-board" sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setDragging(null)}>
       <div className="flex min-h-0 flex-1 flex-col gap-3">
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+        <NativeSelect aria-label="Board column" value={phoneLane} onChange={(e) => setPhoneLane(e.target.value)} className="w-full md:hidden">
+          {columns.map((col) => (
+            <NativeSelectOption key={col.key} value={col.key}>
+              {col.label} ({shown.filter((c) => col.statuses.includes(c.status)).length})
+            </NativeSelectOption>
+          ))}
+        </NativeSelect>
         <SideScroller>
           {columns.map((col) => {
             const list = shown.filter((c) => col.statuses.includes(c.status));
             const to = dragging ? dropTarget(dragging, col) : null;
             return (
-              <Lane key={col.key} col={col} count={list.length} state={dragging ? (to ? "open" : "closed") : "idle"}>
+              <Lane key={col.key} col={col} count={list.length} state={dragging ? (to ? "open" : "closed") : "idle"} onPhone={col.key === phoneLane}>
                 {list.map((c) => (
                   <DraggableCard key={c.id} card={c} accent={col.accent} muted={col.muted} targets={targetsOf(c)} onMove={(t) => send(c, t)} />
                 ))}
@@ -190,7 +200,8 @@ function SideScroller({ children }: { children: ReactNode }) {
 
   return (
     <div className="relative flex min-h-0 flex-1">
-      <div ref={ref} className="flex min-h-0 flex-1 gap-3 overflow-x-auto pb-2">
+      {/* On a phone only one lane shows (picked above): nothing to scroll sideways. */}
+      <div ref={ref} className="flex min-h-0 flex-1 gap-3 pb-2 md:overflow-x-auto">
         {children}
       </div>
       {more.left && arrow(-1)}
@@ -199,16 +210,21 @@ function SideScroller({ children }: { children: ReactNode }) {
   );
 }
 
-/** One column; while a card is dragged it shows whether the card can be dropped here. */
-function Lane({ col, count, state, children }: { col: BoardColumn; count: number; state: "idle" | "open" | "closed"; children: ReactNode }) {
+/**
+ * One column; while a card is dragged it shows whether the card can be dropped here. On a phone only the one
+ * picked shows (`onPhone`), the width of the screen, its cards down the page.
+ */
+function Lane({ col, count, state, onPhone, children }: { col: BoardColumn; count: number; state: "idle" | "open" | "closed"; onPhone: boolean; children: ReactNode }) {
   const { setNodeRef, isOver } = useDroppable({ id: col.key, disabled: state === "closed" });
   return (
     <section
       ref={setNodeRef}
       aria-label={col.label}
       className={cn(
-        // Each lane scrolls its own cards: it fills the board's height (capped on a phone), never the page.
-        "flex max-h-[75svh] w-72 shrink-0 flex-col rounded-xl border border-t-4 bg-muted/40 transition-colors md:max-h-none md:min-h-0",
+        // On desktop each lane scrolls its own cards: it fills the board's height, never the page. On a phone the
+        // one shown is as tall as its cards, and the page scrolls.
+        "flex shrink-0 flex-col rounded-xl border border-t-4 bg-muted/40 transition-colors max-md:w-full md:w-72 md:min-h-0",
+        !onPhone && "max-md:hidden",
         ACCENTS[col.accent].lane,
         state === "open" && (isOver ? "border-primary bg-primary/10" : "border-primary/50 bg-primary/5"),
         state === "closed" && "opacity-50",
@@ -218,7 +234,7 @@ function Lane({ col, count, state, children }: { col: BoardColumn; count: number
         {col.label}
         <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium tabular-nums", ACCENTS[col.accent].count)}>{count}</span>
       </h2>
-      <div className={cn("flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-2", NO_SCROLLBAR)}>
+      <div className={cn("flex min-h-0 flex-1 flex-col gap-2 px-2 pb-2 md:overflow-y-auto", NO_SCROLLBAR)}>
         {count === 0 && <p className="px-1 py-2 text-xs text-muted-foreground">{state === "open" ? "Drop here" : "None"}</p>}
         {children}
       </div>

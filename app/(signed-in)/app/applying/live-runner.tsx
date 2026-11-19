@@ -176,9 +176,9 @@ export function LiveRunner() {
     <section aria-label="Open in Chrome now" className="flex flex-col gap-2">
       <RunnerBar view={view} onView={setView} now={now} />
       <h2 className="text-sm font-medium">Open in Chrome now</h2>
-      <div className="flex gap-3 overflow-x-auto pb-1">
+      <div className="flex gap-3 pb-1 max-md:flex-col md:overflow-x-auto">
         {view.forms.map((f) => (
-          <article key={f.applicationId} className="flex w-64 shrink-0 flex-col gap-2 rounded-lg border bg-card p-2 sm:w-72">
+          <article key={f.applicationId} className="flex shrink-0 flex-col gap-2 rounded-lg border bg-card p-2 max-md:w-full md:w-72">
             <button
               type="button"
               onClick={() => setBig(f.applicationId)}

@@ -33,3 +33,29 @@ test("shows arrows while there are more lanes that way", async ({ page }) => {
   await later.click();
   await expect(earlier).toBeVisible();
 });
+
+test("on a phone: one column at a time, picked from a list, its cards down the page", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const sent: { title: string }[] = [];
+  for (let i = 0; i < 8; i++) sent.push(await seed.application(`phone${i}`, "submitted", { submitted_at: new Date().toISOString() }));
+  const stuck = await seed.application("phone-stuck", "manual", { apply_note: "Nobody submitted the form within 30 minutes." });
+  await page.goto("/app/applying");
+
+  const column = page.getByRole("combobox", { name: "Board column" });
+  await expect(column).toBeVisible();
+  // One column shows; the others wait in the list.
+  const picked = await column.inputValue();
+  await column.selectOption({ label: (await column.locator("option").allTextContents()).find((o) => o.startsWith("Submitted"))! });
+  const submitted = page.getByRole("region", { name: "Submitted" });
+  await expect(submitted.getByText(sent[7].title)).toBeVisible();
+  await expect(page.getByRole("region", { name: "Runner stuck" })).toBeHidden();
+  // Its cards go down the page: the column doesn't scroll on its own.
+  const box = await submitted.evaluate((s) => ({ scroll: s.scrollHeight, shown: s.clientHeight }));
+  expect(box.scroll).toBeLessThanOrEqual(box.shown + 1);
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/applying-phone.png`, fullPage: true });
+
+  await column.selectOption({ label: (await column.locator("option").allTextContents()).find((o) => o.startsWith("Runner stuck"))! });
+  await expect(page.getByRole("region", { name: "Runner stuck" }).getByText(stuck.title)).toBeVisible();
+  await expect(submitted).toBeHidden();
+  expect(picked).toBeTruthy();
+});
