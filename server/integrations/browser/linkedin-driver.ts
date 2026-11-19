@@ -91,9 +91,20 @@ const CHOICE_HELPERS = `
   };
 `;
 
+/** The Easy Apply form's buttons: what tells its dialog from another on the page (a Premium offer, a message). */
+const FORM_BUTTON = /^(next|continue|review|submit application)$/i;
+
+/**
+ * Runs in the page: the Easy Apply form, as `dialog` finds it: LinkedIn's form box, else a dialog with the
+ * form's buttons.
+ */
+const FORM_DIALOG_JS = `const FORM_DIALOG = () => document.querySelector('[data-testid="dialog-content"]') ||
+    [...document.querySelectorAll('[role="dialog"], dialog[open]')].find((d) => [...d.querySelectorAll("button")].some((b) => ${FORM_BUTTON}.test((b.innerText || b.getAttribute("aria-label") || "").trim()))) || null;`;
+
 /** Runs in the page: the radio or checkbox group (by name, else id) whose question is `label` (normalized). */
 const FIND = (label: string) => `(() => {
-  const d = document.querySelector('[data-testid="dialog-content"]') || document.querySelector('[role="dialog"]');
+  ${FORM_DIALOG_JS}
+  const d = FORM_DIALOG();
   if (!d) return null;
   ${CHOICE_HELPERS}
   for (const e of d.querySelectorAll("input[type=radio], input[type=checkbox]")) {
@@ -104,7 +115,8 @@ const FIND = (label: string) => `(() => {
 
 // Runs in the page: the dialog's visible questions, with what each shows now and whether it's required.
 const SCAN = `(() => {
-  const d = document.querySelector('[data-testid="dialog-content"]') || document.querySelector('[role="dialog"]');
+  ${FORM_DIALOG_JS}
+  const d = FORM_DIALOG();
   if (!d) return [];
   ${CHOICE_HELPERS}
   const shown = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
@@ -155,7 +167,11 @@ export const jobUrl = (id: string) => `https://www.linkedin.com/jobs/view/${enco
  * @param pace - How fast to type and move between fields (a person's pace unless a test says otherwise).
  */
 export function linkedinDriver(page: Page, pace: Pace = HUMAN): FormDriver {
-  const dialog = page.locator('[data-testid="dialog-content"], [role="dialog"]').first();
+  // The form, not whichever dialog comes first: LinkedIn may show another (a Premium offer) before it.
+  const dialog = page
+    .locator('[data-testid="dialog-content"]')
+    .or(page.locator('[role="dialog"], dialog[open]').filter({ has: page.getByRole("button", { name: FORM_BUTTON }) }))
+    .first();
   const button = (name: RegExp) => dialog.getByRole("button", { name });
 
   /** The visible field (or radio group) whose question is `label`. */
@@ -282,7 +298,14 @@ export function linkedinDriver(page: Page, pace: Pace = HUMAN): FormDriver {
     async discard() {
       // Closing the dialog asks whether to save the application: Discard keeps nothing. LinkedIn's form is a
       // <dialog> element (older ones: role="dialog").
-      const close = page.locator(":is(dialog, [role=\"dialog\"]) button:is([aria-label=\"Dismiss\"], [aria-label*=\"close\" i])").first();
+      // The form's own close button, not another dialog's (a Premium offer's).
+      const closer = "button:is([aria-label=\"Dismiss\"], [aria-label*=\"close\" i])";
+      const close = page
+        .locator(":is(dialog, [role=\"dialog\"])")
+        .filter({ has: page.getByRole("button", { name: FORM_BUTTON }) })
+        .locator(closer)
+        .or(page.locator(`:is(dialog, [role="dialog"]):has([data-testid="dialog-content"]) ${closer}`))
+        .first();
       if ((await close.count()) > 0) await close.click().catch(() => undefined);
       const discard = page.getByRole("button", { name: /^discard$/i }).first();
       if (await discard.waitFor({ timeout: 5000 }).then(() => true, () => false)) await discard.click();

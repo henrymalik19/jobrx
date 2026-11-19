@@ -86,6 +86,18 @@ describe.skipIf(!browser)("linkedinDriver", () => {
     expect(await driver.confirmation()).toBeNull();
   }, 30_000);
 
+  it("works in the form while LinkedIn shows another dialog before it", async () => {
+    const driver = linkedinDriver(page, INSTANT);
+    expect(await driver.open(FIXTURE)).toBe("ok");
+    // A Premium offer, earlier on the page than the form.
+    await page.evaluate(() =>
+      document.body.insertAdjacentHTML("afterbegin", '<div role="dialog"><h2>Get hired faster with Premium</h2><button type="button" aria-label="Dismiss">x</button></div>'),
+    );
+    expect(await driver.pageQuestions!()).toHaveLength(2);
+    expect(await driver.nextPage!(resume)).toBe("next");
+    expect(await driver.discard!()).toBe(true);
+  }, 30_000);
+
   it("tells a closed posting from a page with no form for another reason", async () => {
     const driver = linkedinDriver(page, INSTANT);
     // Data URLs stand in for the job pages: LinkedIn shows the note in place of Easy Apply.
