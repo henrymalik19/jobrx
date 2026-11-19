@@ -49,6 +49,8 @@ const SCAN = `(({ root, strategy, known }) => {
     const type = (e.getAttribute("type") || "").toLowerCase();
     if (["hidden", "file", "submit", "button", "search"].includes(type)) continue;
     if (/recaptcha|captcha/i.test(e.name || e.id || "")) continue;
+    // A disabled box isn't asked for, even marked required: Greenhouse's end date once "Current role" is ticked.
+    if (e.disabled || e.getAttribute("aria-disabled") === "true") continue;
     if (!visible(e) || !marked(e)) continue;
     const key = keyOf(e);
     if (!key || known.includes(key)) continue;

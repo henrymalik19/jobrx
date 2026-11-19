@@ -88,6 +88,22 @@ describe.skipIf(!browser)("greenhouseDriver", () => {
     expect(await driver.fill({ ...step, value: ["Mars"] }, resume)).toBe(false);
   });
 
+  it("doesn't count a required box the form has disabled as empty (end date once Current role is ticked)", async () => {
+    const driver = greenhouseDriver(page, 15_000, INSTANT);
+    await driver.open(FIXTURE);
+    // As the live form: required end date boxes, disabled while "Current role" is ticked.
+    await page.evaluate(() =>
+      document.getElementById("application-form")!.insertAdjacentHTML(
+        "afterbegin",
+        `<div class="field"><label for="end-date-year-0">End date year*</label><input id="end-date-year-0" type="text" aria-required="true" required disabled></div>
+         <div class="field"><label for="end-date-month-0">End date month*</label><input id="end-date-month-0" role="combobox" aria-required="true" required></div>`,
+      ),
+    );
+    const open = (await driver.openFields!([])).map((f) => f.key);
+    expect(open).toContain("end-date-month-0");
+    expect(open).not.toContain("end-date-year-0");
+  });
+
   it("tells a field the form has from one it doesn't", async () => {
     const driver = greenhouseDriver(page, 15_000, INSTANT);
     await driver.open(FIXTURE);
