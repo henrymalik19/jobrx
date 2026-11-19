@@ -258,7 +258,7 @@ async function Todo({ searchParams }: { searchParams: SearchParams }) {
               </TableHeader>
               <TableBody>
                 {rows.map((a) => (
-                  <TableRow key={a.id}>
+                  <TableRow key={a.id} className="transition-opacity has-[[data-decided]]:opacity-50">
                     <TableCell className="text-right align-top max-md:order-1" data-label={a.score != null ? "Match" : undefined}>
                       {a.score != null ? <Badge className="tabular-nums">{a.score}</Badge> : <span className="text-muted-foreground max-md:hidden">—</span>}
                     </TableCell>
