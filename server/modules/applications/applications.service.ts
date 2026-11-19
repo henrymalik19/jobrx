@@ -197,7 +197,7 @@ export async function answerQuestion(
   db: Db,
   userId: string,
   input: { applicationId: string; questionId: string; answer: string; save: boolean; lesson?: string },
-): Promise<{ note: string; movedToReview: boolean }> {
+): Promise<{ note: string; movedToReview: boolean; reapproved: boolean }> {
   const { applicationId, questionId, answer: raw, save } = answerInput.parse(input);
   const app = await getApplication(db, userId, applicationId);
   const q = app?.questions.find((x) => x.id === questionId);
@@ -215,7 +215,8 @@ export async function answerQuestion(
   const stillBlocked = blockingQuestions({ questions: app.questions.filter((x) => x.id !== q.id) });
   const movedToReview = app.status === "needs_input" && stillBlocked.length === 0;
   if (movedToReview) await transition(db, app.id, "queued", "user:answer");
-  return { note: reuse.note, movedToReview };
+  const reapproved = movedToReview && (await sentHereByRunner(db, app.id)) && (await reapprove(db, userId, app.id));
+  return { note: reuse.note, movedToReview, reapproved };
 }
 
 /** Free-text answers stay with their application; short ones are remembered for other forms. */
@@ -234,7 +235,7 @@ export async function answerQuestions(
   db: Db,
   userId: string,
   input: { applicationId: string; answers: { questionId: string; answer: string }[]; confirmUnchanged?: boolean },
-): Promise<{ note: string; movedToReview: boolean }> {
+): Promise<{ note: string; movedToReview: boolean; reapproved: boolean }> {
   const app = await getApplication(db, userId, z.string().uuid().parse(input.applicationId));
   if (!app) throw new ValidationError("That application is gone; reload the page.");
   let saved = 0;
@@ -278,13 +279,36 @@ export async function answerQuestions(
   const fresh = saved > 0 ? await getApplication(db, userId, app.id) : null;
   const movedToReview = app.status === "needs_input" && !!fresh && (fresh.status === "queued" || blockingQuestions(fresh).length === 0);
   if (movedToReview && fresh?.status === "needs_input") await transition(db, app.id, "queued", "user:answer");
+  // The runner sent it here from a form you'd approved: answered, it goes back to the runner, approved again,
+  // unless answers drafted by AI there are still for you to check (then it waits in Ready to approve).
+  const reapproved = movedToReview && (await sentHereByRunner(db, app.id)) && (await reapprove(db, userId, app.id));
   const parts = [
     saved ? `Saved ${saved} ${saved === 1 ? "answer" : "answers"}${remembered ? ` (${remembered} remembered for other applications)` : ""}.` : "",
     cleared ? `Cleared ${cleared} ${cleared === 1 ? "answer" : "answers"}; ${cleared === 1 ? "it's" : "they're"} sent empty.` : "",
     confirmed ? `Marked ${confirmed} as checked.` : "",
     alsoCleared ? `Also checked on ${alsoCleared} other ${alsoCleared === 1 ? "application" : "applications"}.` : "",
   ].filter(Boolean);
-  return { note: parts.join(" ") || "Nothing changed.", movedToReview };
+  return { note: parts.join(" ") || "Nothing changed.", movedToReview, reapproved };
+}
+
+/** Whether an application's questions came from the runner going through its form after you approved it. */
+async function sentHereByRunner(db: Db, applicationId: string): Promise<boolean> {
+  const { data } = await db
+    .from("application_events")
+    .select("cause")
+    .eq("application_id", applicationId)
+    .eq("to_status", "needs_input")
+    .order("created_at", { ascending: false })
+    .limit(1);
+  return data?.[0]?.cause === "worker:form_questions";
+}
+
+/** Approves it again when nothing on it is left to check; whether it did. */
+async function reapprove(db: Db, userId: string, applicationId: string): Promise<boolean> {
+  const app = await getApplication(db, userId, applicationId, { fresh: true });
+  if (!app || app.status !== "queued" || app.questions.some((q) => q.bucket === "drafted" || q.needs_check)) return false;
+  await approveApplication(db, userId, applicationId);
+  return true;
 }
 
 /**

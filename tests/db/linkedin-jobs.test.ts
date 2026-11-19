@@ -11,6 +11,7 @@ import type { Db } from "@/server/db/types";
 import { saveLinkedInJobs, type LinkedInJob } from "@/server/modules/discovery/linkedin-jobs";
 import { prepareJob } from "@/server/modules/prepare/prepare.service";
 import { saveFormQuestions } from "@/server/modules/apply/form-questions";
+import { answerQuestions } from "@/server/modules/applications/applications.service";
 import type {} from "./setup";
 import { testUser } from "./users";
 
@@ -84,6 +85,40 @@ describe("LinkedIn jobs", () => {
     // Not approved any more: refused.
     await expect(saveFormQuestions(db, userId, other, [conflict])).rejects.toThrow(/approved/);
     await db.from("applications").delete().in("id", [id, other]);
+  });
+
+  it("goes back to the runner, approved again, once you answer what it asked; to review when there's more to check", async () => {
+    const add = async (externalId: string) => {
+      const { data: job } = await db.from("jobs").select("id").eq("source", "linkedin").eq("external_id", externalId).single();
+      const { data } = await db.from("applications").insert({ user_id: userId, job_id: job!.id, status: "approved", approved_at: new Date().toISOString() }).select("id").single();
+      return data!.id as string;
+    };
+    // Questions of this run's own: an answer is remembered for the user, and would answer them next time.
+    const clearance = { key: `q:security clearance ${tag}?`, label: `Security clearance ${tag}?`, kind: "select" as const, options: ["Yes", "No"], required: true };
+    const question = async (appId: string, key = clearance.key) => {
+      const { data } = await db.from("application_questions").select("id").eq("application_id", appId).eq("field_name", key).single();
+      return data!.id as string;
+    };
+    const status = async (appId: string) => (await db.from("applications").select("status").eq("id", appId).single()).data!.status;
+
+    // Only your question: answered, it's approved again.
+    const plain = await add(ids[1]);
+    expect(await saveFormQuestions(db, userId, plain, [clearance])).toBe("needs_input");
+    const done = await answerQuestions(db, userId, { applicationId: plain, answers: [{ questionId: await question(plain), answer: "No" }] });
+    expect(done).toMatchObject({ movedToReview: true, reapproved: true });
+    expect(await status(plain)).toBe("approved");
+
+    // An answer of Claude's to double-check as well: it waits in Ready to approve. (A question of its own: the
+    // answer above is remembered and would answer it.)
+    const relocate = { key: `q:willing to relocate ${tag}?`, label: `Willing to relocate ${tag}?`, kind: "select" as const, options: ["Yes", "No"], required: true };
+    const checked = await add(ids[0]);
+    expect(await saveFormQuestions(db, userId, checked, [relocate, { key: "q:years of go", label: "Years of Go", kind: "text", options: [], required: true, answer: ["5"] }])).toBe("needs_input");
+    const more = await answerQuestions(db, userId, { applicationId: checked, answers: [{ questionId: await question(checked, relocate.key), answer: "No" }] });
+    expect(more).toMatchObject({ movedToReview: true, reapproved: false });
+    expect(await status(checked)).toBe("queued");
+    await db.from("applications").delete().in("id", [plain, checked]);
+    const { data: saved } = await db.from("questions").select("id").in("label", [clearance.label, relocate.label]);
+    await db.from("question_answers").delete().eq("user_id", userId).in("question_id", (saved ?? []).map((q) => q.id));
   });
 
   it("is ready to review once prepared, with its questions left to the form", async () => {

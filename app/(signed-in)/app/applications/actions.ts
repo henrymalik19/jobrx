@@ -26,10 +26,11 @@ export async function answerQuestionsAction(_prev: FormMessageState, formData: F
     const applicationId = text(formData, "application_id");
     const result = await answerQuestions(db, owner.id, { applicationId, answers, confirmUnchanged: formData.get("confirm") === "1" });
     // Ready to review now: its resume is made from your profile as it is, after this response.
-    if (result.movedToReview) {
+    if (result.movedToReview && !result.reapproved) {
       after(() => ensureResume({ db, userId: owner.id, call: createClaudeCaller(DRAFTING_MODEL) }, applicationId).catch(() => undefined));
     }
     refresh();
+    if (result.reapproved) return { ok: `${result.note} Nothing else is blocking it: approved again, back to the apply runner.` };
     return { ok: result.movedToReview ? `${result.note} Nothing else is blocking it: moved to Review.` : result.note };
   } catch (err) {
     if (err instanceof ValidationError) return { error: err.message };
