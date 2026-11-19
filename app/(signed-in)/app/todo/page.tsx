@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ownerContext } from "@/server/auth/require-owner";
-import { blockingQuestions, listApplications, yourSteps, type ApplicationWithDetails } from "@/server/modules/applications/applications.service";
+import { blockingQuestions, listApplications, settleAnswered, yourSteps, type ApplicationWithDetails } from "@/server/modules/applications/applications.service";
 import { classifyByRules, matchEmail } from "@/server/modules/tracking/classify";
 import { listUnmatchedEmails, listUnsortedEmails, type UnmatchedEmail } from "@/server/modules/tracking/tracking.service";
 import { cn } from "@/shared/cn";
@@ -17,6 +17,7 @@ import { LinkEmail, type LinkTarget } from "./link-email";
 import { QuickDecide } from "./quick-decide";
 import { laneHref, splitLanes, TABS, type TabId } from "./lanes";
 import { TableSkeleton } from "../../_components/skeletons";
+import { SectionPicker } from "../../_components/section-picker";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -93,7 +94,7 @@ function UnmatchedEmails({ emails, unsorted, apps, now }: { emails: UnmatchedEma
       </CardHeader>
       <CardContent className={scrollingTable.content}>
         {/* One scroller for both lists: the first one isn't squeezed, so it would leave the second none of the card. */}
-        <div className="max-h-[70vh] min-h-0 flex-1 overflow-auto md:max-h-none">
+        <div className="min-h-0 flex-1 md:overflow-auto">
         {unsorted.length > 0 && (
           <div className="mb-6 flex flex-col gap-2">
             <h2 className="text-sm font-medium">Couldn&apos;t tell what it says</h2>
@@ -110,7 +111,7 @@ function UnmatchedEmails({ emails, unsorted, apps, now }: { emails: UnmatchedEma
                       <TableCell className={cn("max-w-md whitespace-normal align-top", cardsOnPhone.first)}>
                         <span className="font-medium">{e.subject || "(no subject)"}</span>
                         <span className="block text-sm text-muted-foreground">{e.from}</span>
-                        <span className="mt-1 line-clamp-2 block text-xs text-muted-foreground" title={e.snippet}>{e.snippet}</span>
+                        <span className="mt-1 line-clamp-2 text-xs text-muted-foreground" title={e.snippet}>{e.snippet}</span>
                       </TableCell>
                       <TableCell className={cn("align-top", cardsOnPhone.full)}><LinkEmail emailId={e.id} targets={targets} suggested={guess.app?.id ?? null} /></TableCell>
                       <TableCell className={cn("align-top text-muted-foreground", cardsOnPhone.meta)} data-label="Received">{ago(e.receivedAt, now)}</TableCell>
@@ -140,7 +141,7 @@ function UnmatchedEmails({ emails, unsorted, apps, now }: { emails: UnmatchedEma
                     <TableCell className={cn("max-w-md whitespace-normal align-top", cardsOnPhone.first)}>
                       <span className="font-medium">{e.subject || "(no subject)"}</span>
                       <span className="block text-sm text-muted-foreground">{e.from}</span>
-                      <span className="mt-1 line-clamp-2 block text-xs text-muted-foreground" title={e.snippet}>{e.snippet}</span>
+                      <span className="mt-1 line-clamp-2 text-xs text-muted-foreground" title={e.snippet}>{e.snippet}</span>
                     </TableCell>
                     <TableCell className={cn("align-top", cardsOnPhone.full)}>
                       {/* What it says, as tracking read it (read again with today's rules, which may know better): correct it before linking. */}
@@ -161,12 +162,15 @@ function UnmatchedEmails({ emails, unsorted, apps, now }: { emails: UnmatchedEma
 
 async function Todo({ searchParams }: { searchParams: SearchParams }) {
   const { db, owner } = await ownerContext();
-  const [listed, params, emails, applied] = await Promise.all([
+  const [found, params, emails, applied] = await Promise.all([
     listApplications(db, owner.id, TABS.flatMap((t) => t.statuses)),
     searchParams,
     listUnmatchedEmails(db, owner.id),
     listApplications(db, owner.id, ["approved", "manual", "submitted", "confirmed", "responded", "interviewing", "offer"]),
   ]);
+  // One in Missing answers with nothing left to answer moves on now, so it isn't listed as waiting on you.
+  const moved = await settleAnswered(db, owner.id, found).catch(() => [] as string[]);
+  const listed = moved.length ? await listApplications(db, owner.id, TABS.flatMap((t) => t.statuses)) : found;
   const unsorted = await listUnsortedEmails(
     db,
     owner.id,
@@ -182,9 +186,20 @@ async function Todo({ searchParams }: { searchParams: SearchParams }) {
   const rows = byTab[current.id];
   const now = new Date();
 
+  const sections = [
+    ...TABS.map((t) => ({ href: `/app/todo?tab=${t.id}`, label: t.label, count: byTab[t.id].length })),
+    { href: "/app/todo?tab=emails", label: "Unmatched emails", count: waiting },
+  ];
   return (
     <>
-      <nav className="flex w-fit max-w-full shrink-0 gap-1 overflow-x-auto rounded-lg bg-muted p-1" aria-label="To do lanes">
+      {/* A phone has a list to pick from; the tabs would run off its screen. */}
+      <SectionPicker
+        sections={sections}
+        current={showEmails ? "/app/todo?tab=emails" : `/app/todo?tab=${current.id}`}
+        label="To do lanes"
+        className="md:hidden"
+      />
+      <nav className="flex w-fit max-w-full shrink-0 gap-1 overflow-x-auto rounded-lg bg-muted p-1 max-md:hidden" aria-label="To do lanes">
         {TABS.map((t) => (
           <Link
             key={t.id}
@@ -236,7 +251,7 @@ async function Todo({ searchParams }: { searchParams: SearchParams }) {
               <TableBody>
                 {rows.map((a) => (
                   <TableRow key={a.id} className="transition-opacity has-[[data-decided]]:opacity-50">
-                    <TableCell className="text-right align-top max-md:order-1" data-label={a.score != null ? "Match" : undefined}>
+                    <TableCell className="text-right align-top max-md:order-2" data-label={a.score != null ? "Match" : undefined}>
                       {a.score != null ? <Badge className="tabular-nums">{a.score}</Badge> : <span className="text-muted-foreground max-md:hidden">—</span>}
                     </TableCell>
                     <TableCell className={cn("max-w-xs whitespace-normal align-top", cardsOnPhone.first)}>
@@ -246,10 +261,10 @@ async function Todo({ searchParams }: { searchParams: SearchParams }) {
                         <SiteBadge source={a.job.source} />
                       </div>
                     </TableCell>
-                    <TableCell className={cn("max-w-md whitespace-normal align-top text-sm", cardsOnPhone.full)}><Needs tab={current.id} app={a} /></TableCell>
-                    <TableCell className={cn("align-top tabular-nums", cardsOnPhone.meta)} data-label="Salary">{formatSalary(a.job.salary_min, a.job.salary_max, a.job.salary_currency) || "—"}</TableCell>
-                    <TableCell className={cn("align-top text-muted-foreground", cardsOnPhone.meta)} data-label="Prepared">{a.prepared_at ? ago(a.prepared_at, now) : "—"}</TableCell>
-                    <TableCell className="text-right align-top max-md:order-last max-md:w-full">
+                    <TableCell className={cn("max-w-md whitespace-normal align-top text-sm max-md:order-1", cardsOnPhone.full)}><Needs tab={current.id} app={a} /></TableCell>
+                    <TableCell className={cn("align-top tabular-nums max-md:order-3", cardsOnPhone.meta)} data-label="Salary">{formatSalary(a.job.salary_min, a.job.salary_max, a.job.salary_currency) || "—"}</TableCell>
+                    <TableCell className={cn("align-top text-muted-foreground max-md:order-4", cardsOnPhone.meta)} data-label="Prepared">{a.prepared_at ? ago(a.prepared_at, now) : "—"}</TableCell>
+                    <TableCell className="text-right align-top max-md:order-last max-md:ml-auto">
                       {/* Same rule as Approve on its page: a manual one the runner wrote a note on is yours to apply. */}
                       <QuickDecide applicationId={a.id} canApprove={a.status === "queued" || (a.status === "manual" && a.apply_note == null)} />
                     </TableCell>

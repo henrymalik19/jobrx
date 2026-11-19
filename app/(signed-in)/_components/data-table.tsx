@@ -7,13 +7,13 @@ import type { Page } from "@/shared/paginate";
 /**
  * Classes for a table that scrolls inside its card. On desktop the card fills
  * the rest of the screen and the table takes the space left in it, so the page
- * itself does not scroll; on small screens the table is capped at 70% of the
- * viewport. The header row sticks while the rows scroll.
+ * itself does not scroll, and the header row sticks while the rows scroll. On a
+ * phone the page scrolls instead (a box scrolling inside a scrolling page is hard to use there).
  */
 export const scrollingTable = {
   card: "md:min-h-[16rem] md:flex-1",
   content: "flex min-h-0 flex-1 flex-col",
-  container: "max-h-[70vh] min-h-0 flex-1 overflow-auto rounded-md border md:max-h-none",
+  container: "min-h-0 flex-1 rounded-md border md:overflow-auto",
   header: "sticky top-0 z-10 bg-card shadow-[inset_0_-1px_0_var(--border)] [&_th]:bg-card",
 };
 

@@ -59,10 +59,14 @@ test("steps through a lane from an application, and approving goes on to the nex
 });
 
 test("keeps its place in Missing answers once its answers move it on", async ({ page }) => {
-  // Listed third, second, first.
+  // Listed third, second, first; each with a question to answer (with none, it would move on by itself).
   const first = await seed.application("first", "needs_input");
   const second = await seed.application("second", "needs_input");
   const third = await seed.application("third", "needs_input");
+  const { error } = await db.from("application_questions").insert(
+    [first, second, third].map((a) => ({ application_id: a.id, question: "Why us?", field_name: "question_1", field_type: "text", required: true, bucket: "needs_user", sort_order: 0 })),
+  );
+  expect(error).toBeNull();
   await page.goto("/app/todo?tab=answers");
   await page.getByRole("row").filter({ hasText: second.title }).getByRole("link", { name: second.title }).click();
   const title = page.getByRole("heading", { level: 1 });
@@ -79,4 +83,27 @@ test("keeps its place in Missing answers once its answers move it on", async ({ 
   await page.keyboard.press("ArrowLeft");
   // The one it left is no longer in the lane: back from the first goes to the third.
   await expect(title).toHaveText(third.title);
+});
+
+test("on a phone: the lanes are a list to pick from, the page scrolls, and Decide comes first", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const first = await seed.application("phone", "queued");
+  await page.goto("/app/todo?tab=ready");
+  const lanes = page.getByRole("combobox", { name: "To do lanes" });
+  await expect(lanes).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "To do lanes" })).toBeHidden();
+  // The list doesn't scroll inside a box: the page does.
+  const box = await page.locator("table").first().evaluate((t) => ({ scroll: t.parentElement!.scrollHeight, shown: t.parentElement!.clientHeight }));
+  expect(box.scroll).toBeLessThanOrEqual(box.shown + 1);
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/todo-phone.png` });
+
+  await lanes.selectOption("/app/todo?tab=emails");
+  await expect(page).toHaveURL(/tab=emails/);
+
+  await page.goto(`/app/applications/${first.id}?from=todo&tab=ready`);
+  const decide = page.getByRole("button", { name: "Approve" });
+  await expect(decide).toBeVisible();
+  // Above the questions, near the top.
+  expect((await decide.boundingBox())!.y).toBeLessThan(844 * 1.5);
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/application-phone.png` });
 });

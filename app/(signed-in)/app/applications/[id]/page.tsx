@@ -168,7 +168,7 @@ function NextStep({ app, blockers, flags, skip, limit }: {
       <p>
         Everything required is answered.
         {toCheck > 0 ? ` Look over the ${toCheck} ${toCheck === 1 ? "answer" : "answers"} under “Double-check these” and the resume,` : " Look over the resume,"} then
-        approve or skip on the right.
+        approve or skip it under Decide.
       </p>
     );
     if (yourSteps(app).length > 0) body = <>{body}<YourSteps steps={yourSteps(app)} /></>;
@@ -486,6 +486,8 @@ async function ApplicationDetail({ params, searchParams }: { params: Params; sea
           now={now.getTime()}
         />
       )}
+      {/* On a phone, Decide comes first, not after every question (desktop has it beside them). */}
+      {editable && <div className="lg:hidden"><Decide app={app} lane={lane} /></div>}
       {/* Not sent yet: the company may not take it until a date. */}
       {["needs_input", "queued", "manual", "approved"].includes(app.status) && <CompanyLimitNotice company={app.job.company_name} limit={limit} />}
 
@@ -558,7 +560,7 @@ async function ApplicationDetail({ params, searchParams }: { params: Params; sea
           <EmailsCard emails={emails} now={now} />
         </div>
         <aside className="flex flex-col gap-6 lg:sticky lg:top-32">
-          {editable && <Decide app={app} lane={lane} />}
+          {editable && <div className="max-lg:hidden"><Decide app={app} lane={lane} /></div>}
           <MatchCard match={match} stacked showThreshold={false} />
           <ResumeCard
             resume={resume}

@@ -42,6 +42,7 @@ import { EndMonth } from "./end-month";
 import { scrollingTable } from "../../_components/data-table";
 import { CLEARANCE_LEVELS } from "@/shared/clearance";
 import { FormSkeleton } from "../../_components/skeletons";
+import { SectionPicker } from "../../_components/section-picker";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? "";
@@ -260,7 +261,14 @@ async function Profile({ searchParams }: { searchParams: SearchParams }) {
 
   return (
     <>
-      <nav className="flex w-fit max-w-full shrink-0 gap-1 overflow-x-auto rounded-lg bg-muted p-1" aria-label="Profile sections">
+      {/* A phone has a list to pick from; the tabs would run off its screen. */}
+      <SectionPicker
+        sections={TABS.map(([id, label]) => ({ href: id === "basics" ? "/app/profile" : `/app/profile?tab=${id}`, label, count: id === "skills" ? data.skills.length : undefined }))}
+        current={tab === "basics" ? "/app/profile" : `/app/profile?tab=${tab}`}
+        label="Profile sections"
+        className="md:hidden"
+      />
+      <nav className="flex w-fit max-w-full shrink-0 gap-1 overflow-x-auto rounded-lg bg-muted p-1 max-md:hidden" aria-label="Profile sections">
         {TABS.map(([id, label]) => (
           <Link
             key={id}

@@ -30,11 +30,11 @@ export function LinkEmail({ emailId, targets, suggested, guess = null }: { email
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex flex-wrap items-center gap-2">
-        <NativeSelect aria-label="What the email says" value={kind} onChange={(e) => setKind(e.target.value)} className="max-w-40">
+        <NativeSelect aria-label="What the email says" value={kind} onChange={(e) => setKind(e.target.value)} className="max-w-40 max-md:w-full max-md:max-w-none">
           <NativeSelectOption value="">What it says…</NativeSelectOption>
           {KINDS.map((k) => <NativeSelectOption key={k.value} value={k.value}>{k.label}</NativeSelectOption>)}
         </NativeSelect>
-        <NativeSelect aria-label="Application this email is about" value={appId} onChange={(e) => setAppId(e.target.value)} className="max-w-64">
+        <NativeSelect aria-label="Application this email is about" value={appId} onChange={(e) => setAppId(e.target.value)} className="max-w-64 max-md:w-full max-md:max-w-none">
           <NativeSelectOption value="">Pick the application…</NativeSelectOption>
           {targets.map((t) => <NativeSelectOption key={t.id} value={t.id}>{t.label}</NativeSelectOption>)}
         </NativeSelect>
