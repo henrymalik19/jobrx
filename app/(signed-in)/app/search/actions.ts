@@ -6,6 +6,7 @@ import { ValidationError } from "@/server/core/errors";
 import { createClaudeCaller } from "@/server/integrations/anthropic/claude";
 import {
   addToTitleFilter,
+  getMatchCriteria,
   saveJobFilter,
   saveMatchCriteria,
   saveTitleFilter,
@@ -53,19 +54,25 @@ export async function pruneSavedJobsAction(): Promise<FormMessageState> {
 export async function saveMatchCriteriaAction(_prev: FormMessageState, formData: FormData): Promise<FormMessageState> {
   const { db, owner } = await ownerContext();
   const field = (name: string) => String(formData.get(name) ?? "");
+  // Target roles and the scoring criteria are saved from their own cards (`part`): what a card doesn't have is
+  // kept as it is.
+  const part = field("part");
+  const sent = (name: string) => !part || (part === "roles") === (name === "roles");
+  const now = await getMatchCriteria(db, owner.id);
+  const pick = (name: string, kept: string) => (sent(name) ? field(name) : kept);
   let saved: Awaited<ReturnType<typeof saveMatchCriteria>>;
   try {
     saved = await saveMatchCriteria(db, owner.id, {
-    roles: field("roles"),
-    seniority: formData.getAll("seniority").map(String),
-    salaryMin: field("salaryMin"),
-    salaryMax: field("salaryMax"),
-    relocate: field("relocate"),
-    dealbreakers: field("dealbreakers"),
-    excludedCompanies: field("excludedCompanies"),
-    skipAgencies: formData.get("skipAgencies") === "on",
-    threshold: field("threshold"),
-    notes: field("notes"),
+    roles: pick("roles", now.roles.join(", ")),
+    seniority: sent("seniority") ? formData.getAll("seniority").map(String) : now.seniority,
+    salaryMin: pick("salaryMin", now.salary_min?.toString() ?? ""),
+    salaryMax: pick("salaryMax", now.salary_max?.toString() ?? ""),
+    relocate: pick("relocate", now.willing_to_relocate == null ? "" : now.willing_to_relocate ? "yes" : "no"),
+    dealbreakers: pick("dealbreakers", now.dealbreakers.join(", ")),
+    excludedCompanies: pick("excludedCompanies", now.excluded_companies.join(", ")),
+    skipAgencies: sent("skipAgencies") ? formData.get("skipAgencies") === "on" : now.skip_staffing_agencies,
+    threshold: pick("threshold", String(now.threshold)),
+    notes: pick("notes", now.notes),
     });
   } catch (err) {
     if (err instanceof ValidationError) return { error: err.message };
@@ -75,7 +82,8 @@ export async function saveMatchCriteriaAction(_prev: FormMessageState, formData:
   const ruledOut = await refilterScoredMatches(db, owner.id);
   refresh();
   const dropped = ruledOut ? ` ${ruledOut} already-scored ${ruledOut === 1 ? "job is" : "jobs are"} now ruled out.` : "";
-  return { ok: (saved.changed ? "Saved. New jobs are matched against these criteria." : "No changes to save.") + dropped };
+  const said = part === "roles" ? "Saved. Scoring and the next LinkedIn search use these roles." : "Saved. New jobs are matched against these criteria.";
+  return { ok: (saved.changed ? said : "No changes to save.") + dropped };
 }
 
 /** State of the title-suggestions panel. */

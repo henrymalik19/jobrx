@@ -98,7 +98,7 @@ export function RolesInput({ defaultValue }: { defaultValue: string[] }) {
             >
               <GripVertical className="size-3.5 shrink-0 cursor-grab text-muted-foreground" aria-hidden />
               <span>{role}</span>
-              {i < LINKEDIN_SEARCHED && <span className="rounded-full bg-primary/15 px-1.5 text-[10px] font-medium text-primary">LinkedIn</span>}
+              {i < LINKEDIN_SEARCHED && <span className="rounded-full bg-primary/15 px-1.5 text-[10px] font-medium text-primary" title="The runner searches LinkedIn for this role">LinkedIn search</span>}
               <button type="button" onClick={() => remove(i)} aria-label={`Remove ${role}`} className="rounded-full p-0.5 text-muted-foreground hover:bg-background hover:text-foreground">
                 <X className="size-3.5" />
               </button>
@@ -144,7 +144,7 @@ export function RolesInput({ defaultValue }: { defaultValue: string[] }) {
         )}
       </div>
       <p className="text-xs text-muted-foreground">
-        Type for titles employers use; Enter adds what you typed. Drag to reorder: the first {LINKEDIN_SEARCHED} are searched on LinkedIn.
+        Type titles employers use; Enter adds what you typed. The runner searches LinkedIn for the first {LINKEDIN_SEARCHED}: drag to choose which.
       </p>
     </div>
   );

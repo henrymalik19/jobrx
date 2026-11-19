@@ -37,20 +37,30 @@ const LEVELS = [
 
 const checkbox = "size-4 rounded border-input accent-primary";
 
-/** Matching criteria form: roles, seniority, salary range, relocation, dealbreakers, excluded companies, threshold, notes. */
-export function MatchCriteriaForm({ values }: { values: MatchCriteriaValues }) {
+/** Your target roles, saved on their own (the scoring criteria keep what they are). */
+export function RolesForm({ roles }: { roles: string[] }) {
+  const [state, action, pending] = useActionState<FormMessageState, FormData>(saveMatchCriteriaAction, {});
+  return (
+    <form action={action} className="flex flex-col gap-3">
+      <input type="hidden" name="part" value="roles" />
+      <RolesInput defaultValue={roles} />
+      <div>
+        <Button type="submit" disabled={pending}>{pending ? "Saving…" : "Save roles"}</Button>
+      </div>
+      <FormMessage state={state} />
+    </form>
+  );
+}
+
+/** How saved jobs are scored: seniority, salary range, relocation, dealbreakers, excluded companies, threshold, notes. */
+export function MatchCriteriaForm({ values }: { values: Omit<MatchCriteriaValues, "roles"> }) {
   const [state, action, pending] = useActionState<FormMessageState, FormData>(saveMatchCriteriaAction, {});
   return (
     <form action={action} className="flex flex-col gap-5">
-      <div className="grid gap-5 lg:grid-cols-2">
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="roles">Target roles</Label>
-          <RolesInput defaultValue={values.roles} />
-        </div>
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="notes">Preferences for the scorer</Label>
-          <Textarea id="notes" name="notes" rows={2} defaultValue={values.notes} placeholder="Product-focused teams, TypeScript/Node, no heavy on-call" />
-        </div>
+      <input type="hidden" name="part" value="scoring" />
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="notes">Preferences for the scorer</Label>
+        <Textarea id="notes" name="notes" rows={2} defaultValue={values.notes} placeholder="Product-focused teams, TypeScript/Node, no heavy on-call" />
       </div>
 
       <fieldset className="flex flex-col gap-2">

@@ -1,4 +1,4 @@
-import { Suspense } from "react";
+import { Suspense, type ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,7 +10,7 @@ import { ago } from "@/shared/format";
 import { AddRuleForm } from "./add-rule-form";
 import { RULE_SCOPES } from "./rule-scopes";
 import { JobFilterForm } from "./job-filter-form";
-import { MatchCriteriaForm } from "./match-criteria-form";
+import { MatchCriteriaForm, RolesForm } from "./match-criteria-form";
 import { PruneForm } from "./prune-form";
 import { TitleFilterForm } from "./title-filter-form";
 import { TitleSuggestions } from "./title-suggestions";
@@ -68,11 +68,27 @@ async function SearchCriteria() {
   ]);
 
   return (
-    <div className="grid gap-6 xl:grid-cols-2">
+    <div className="flex flex-col gap-8">
+      {/* In the order a job goes through: what you're after, which postings are saved, how saved ones are scored. */}
+      <Section title="What you're looking for" hint="The roles you're after. Claude scores saved jobs against them, and the runner searches LinkedIn for the first 3.">
+        <Card className="xl:col-span-2">
+          <CardHeader>
+            <CardTitle>Target roles</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <RolesForm roles={criteria.roles} />
+          </CardContent>
+        </Card>
+      </Section>
+
+      <Section
+        title="Which postings get saved"
+        hint="Every posting found, on your companies' job boards and in the LinkedIn searches, is checked against these. The rest are skipped."
+      >
       <Card>
         <CardHeader>
-          <CardTitle>Job titles</CardTitle>
-          <CardDescription>Whole words, case-insensitive, comma-separated.</CardDescription>
+          <CardTitle>Title words</CardTitle>
+          <CardDescription>A quick yes or no on each posting&apos;s title: whole words, case-insensitive, comma-separated.</CardDescription>
         </CardHeader>
         <CardContent>
           <TitleFilterForm include={title.include} exclude={title.exclude} />
@@ -85,7 +101,6 @@ async function SearchCriteria() {
       <Card>
         <CardHeader>
           <CardTitle>Work type, location and age</CardTitle>
-          <CardDescription>Which jobs are worth saving at all.</CardDescription>
         </CardHeader>
         <CardContent>
           <JobFilterForm
@@ -101,18 +116,17 @@ async function SearchCriteria() {
         </CardContent>
       </Card>
 
+      </Section>
+
+      <Section title="How saved jobs are scored" hint="Saved jobs are checked against these, then scored 0–100 by Claude against your roles and profile.">
       <Card className="xl:col-span-2">
         <CardHeader>
-          <CardTitle>Matching criteria</CardTitle>
-          <CardDescription>
-            Jobs that pass discovery are checked against these rules, then scored 0–100 by Claude against your profile.
-            Changes apply to jobs matched from now on; jobs already matched keep their score.
-          </CardDescription>
+          <CardTitle>Scoring</CardTitle>
+          <CardDescription>Changes apply to jobs matched from now on; jobs already matched keep their score.</CardDescription>
         </CardHeader>
         <CardContent>
           <MatchCriteriaForm
             values={{
-              roles: criteria.roles,
               seniority: criteria.seniority,
               salaryMin: criteria.salary_min,
               salaryMax: criteria.salary_max,
@@ -128,6 +142,9 @@ async function SearchCriteria() {
       </Card>
 
       <RulesForClaude rules={rules} now={now} />
+      </Section>
+
+      <Section title="Checking your filters">
 
       <Card className="xl:col-span-2">
         <CardHeader>
@@ -167,7 +184,21 @@ async function SearchCriteria() {
           <PruneForm />
         </CardContent>
       </Card>
+      </Section>
     </div>
+  );
+}
+
+/** One step of the search, with what it's for, and its cards (two a row on a wide screen). */
+function Section({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
+  return (
+    <section className="flex flex-col gap-3" aria-label={title}>
+      <div>
+        <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+        {hint && <p className="text-sm text-muted-foreground">{hint}</p>}
+      </div>
+      <div className="grid gap-6 xl:grid-cols-2">{children}</div>
+    </section>
   );
 }
 
@@ -177,9 +208,6 @@ export default function SearchPage() {
     <main className="flex flex-col gap-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Search</h1>
-        <p className="text-sm text-muted-foreground">
-          Discovery only saves jobs that pass the first two filters; matching then scores what was saved.
-        </p>
       </div>
       <Suspense fallback={<FormSkeleton />}>
         <SearchCriteria />
