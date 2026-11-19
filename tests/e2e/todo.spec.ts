@@ -57,3 +57,26 @@ test("steps through a lane from an application, and approving goes on to the nex
   await page.keyboard.press("Escape");
   await expect(page).toHaveURL(/\/app\/todo\?tab=ready$/);
 });
+
+test("keeps its place in Missing answers once its answers move it on", async ({ page }) => {
+  // Listed third, second, first.
+  const first = await seed.application("first", "needs_input");
+  const second = await seed.application("second", "needs_input");
+  const third = await seed.application("third", "needs_input");
+  await page.goto("/app/todo?tab=answers");
+  await page.getByRole("row").filter({ hasText: second.title }).getByRole("link", { name: second.title }).click();
+  const title = page.getByRole("heading", { level: 1 });
+  await expect(title).toHaveText(second.title);
+
+  // Its last answer moves it to Ready to approve, as answering on the page does.
+  const moved = await db.rpc("transition_application", { p_application_id: second.id, p_to: "queued", p_cause: "user:answer", p_detail: null });
+  expect(moved.error).toBeNull();
+  await page.reload();
+  const nav = page.getByRole("navigation", { name: "Step through Missing answers" });
+  await expect(nav).toContainText("left");
+  await nav.getByRole("link", { name: "Next" }).click();
+  await expect(title).toHaveText(first.title);
+  await page.keyboard.press("ArrowLeft");
+  // The one it left is no longer in the lane: back from the first goes to the third.
+  await expect(title).toHaveText(third.title);
+});

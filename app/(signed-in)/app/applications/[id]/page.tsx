@@ -26,7 +26,7 @@ import { runnerFills, SiteBadge } from "../../../_components/site-badge";
 import { LiveRefresh } from "../../../_components/live-refresh";
 import { APPLY_STEP_TITLE, backLink, statusInfo, todoHref, TONE_BADGE, type Tone } from "../../../_components/status";
 import { LaneNav } from "../lane-nav";
-import { isTabId, laneHref, laneIds, laneOf, lanePosition, TABS, type TabId } from "../../todo/lanes";
+import { isTabId, laneHref, laneItems, laneOf, lanePosition, TABS, type TabId } from "../../todo/lanes";
 import { DecideActions, MarkAppliedButton, RebuildResumeButton, RetryApplyButton } from "../decide-actions";
 import { isResumeOutdated, recheckOpenQuestions, RESUME_STATUSES, RULES_VERSION } from "@/server/modules/prepare/prepare.service";
 import { createClaudeCaller } from "@/server/integrations/anthropic/claude";
@@ -423,7 +423,7 @@ async function ApplicationDetail({ params, searchParams }: { params: Params; sea
   const back = backLink(app.status, app.apply_note, from);
   // Opened from a To do lane: the arrows step through that lane as it is now.
   const lane: TabId | null = from === "todo" ? (isTabId(query.tab) ? query.tab : laneOf(app.status)) : null;
-  const place = lane ? lanePosition(await laneIds(db, owner.id, lane), app.id) : null;
+  const place = lane ? lanePosition(await laneItems(db, owner.id, lane), app) : null;
   if (lane) back.href = `/app/todo?tab=${lane}`;
   return (
     <div className="flex flex-col gap-6">

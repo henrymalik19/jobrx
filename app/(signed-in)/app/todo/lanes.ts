@@ -40,18 +40,32 @@ export function splitLanes(listed: ApplicationWithDetails[]): Record<TabId, Appl
   return Object.fromEntries(TABS.map((t) => [t.id, apps.filter((a) => (t.statuses as readonly string[]).includes(a.status))])) as Record<TabId, ApplicationWithDetails[]>;
 }
 
-/** One lane's application ids, in To do's order, as it is now. */
-export async function laneIds(db: Db, userId: string, tab: TabId): Promise<string[]> {
+/** What places an application in a lane: To do lists best match first, then newest first. */
+export type LaneItem = { id: string; score: number | null; created_at: string };
+
+/** Negative when `a` is listed before `b` in a lane, positive when after. */
+function order(a: LaneItem, b: LaneItem): number {
+  return (b.score ?? 0) - (a.score ?? 0) || b.created_at.localeCompare(a.created_at);
+}
+
+/** One lane's applications, in To do's order, as it is now. */
+export async function laneItems(db: Db, userId: string, tab: TabId): Promise<LaneItem[]> {
   const lane = TABS.find((t) => t.id === tab)!;
-  return splitLanes(await listApplications(db, userId, [...lane.statuses]))[tab].map((a) => a.id);
+  return splitLanes(await listApplications(db, userId, [...lane.statuses]))[tab].map(({ id, score, created_at }) => ({ id, score, created_at }));
 }
 
 /** An application's page opened from a To do lane: the arrows step through that lane. */
 export const laneHref = (id: string, tab: TabId) => `/app/applications/${id}?from=todo&tab=${tab}`;
 
-/** Where you are in a lane: the ones before and after (null at either end), and your place in it (null once it has left the lane). */
-export function lanePosition(ids: string[], id: string): { prev: string | null; next: string | null; index: number | null; total: number } {
-  const i = ids.indexOf(id);
-  if (i < 0) return { prev: null, next: ids[0] ?? null, index: null, total: ids.length };
-  return { prev: ids[i - 1] ?? null, next: ids[i + 1] ?? null, index: i, total: ids.length };
+/**
+ * Where an application is in a lane: the ones before and after it (null at either end), and its place in it.
+ * Once it has left the lane (its last answer moved it on), its place is null and its neighbours are the ones
+ * around where it stood.
+ */
+export function lanePosition(items: LaneItem[], app: LaneItem): { prev: string | null; next: string | null; index: number | null; total: number } {
+  const i = items.findIndex((x) => x.id === app.id);
+  if (i >= 0) return { prev: items[i - 1]?.id ?? null, next: items[i + 1]?.id ?? null, index: i, total: items.length };
+  const at = items.findIndex((x) => order(x, app) > 0);
+  const after = at < 0 ? items.length : at;
+  return { prev: items[after - 1]?.id ?? null, next: items[after]?.id ?? null, index: null, total: items.length };
 }

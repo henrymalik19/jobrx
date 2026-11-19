@@ -5,10 +5,10 @@ import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { ownerContext } from "@/server/auth/require-owner";
 import type { Db } from "@/server/db/types";
-import { isTabId, laneHref, laneIds, type TabId } from "../todo/lanes";
+import { isTabId, laneHref, laneItems, lanePosition, type TabId } from "../todo/lanes";
 import { createClaudeCaller, DRAFTING_MODEL } from "@/server/integrations/anthropic/claude";
 import { ValidationError } from "@/server/core/errors";
-import { answerQuestions, approveApplication, IllegalTransitionError, moveApplication, skipApplication } from "@/server/modules/applications/applications.service";
+import { answerQuestions, approveApplication, getApplication, IllegalTransitionError, moveApplication, skipApplication } from "@/server/modules/applications/applications.service";
 import { retryApply } from "@/server/modules/apply/apply.service";
 import { excludeCompany } from "@/server/modules/criteria/criteria.service";
 import { ensureResume, rebuildResume, redraftAnswer } from "@/server/modules/prepare/prepare.service";
@@ -37,13 +37,10 @@ export async function answerQuestionsAction(_prev: FormMessageState, formData: F
   }
 }
 
-/**
- * After deciding on an application opened from a To do lane: the one after it in that lane, as the lane is now,
- * else the lane itself. `before` is the lane as it was before the decision, for where this one stood.
- */
-async function nextInLane(db: Db, userId: string, lane: TabId, applicationId: string, before: string[]): Promise<string> {
-  const now = new Set(await laneIds(db, userId, lane));
-  const next = before.slice(before.indexOf(applicationId) + 1).find((id) => id !== applicationId && now.has(id));
+/** After deciding on an application opened from a To do lane: the one after where it stood, as the lane is now, else the lane. */
+async function nextInLane(db: Db, userId: string, lane: TabId, applicationId: string): Promise<string> {
+  const app = await getApplication(db, userId, applicationId, { fresh: true });
+  const next = app ? lanePosition(await laneItems(db, userId, lane), app).next : null;
   return next ? laneHref(next, lane) : `/app/todo?tab=${lane}`;
 }
 
@@ -58,7 +55,6 @@ export async function approveAction(_prev: FormMessageState, formData: FormData)
   const { db, owner } = await ownerContext();
   const applicationId = text(formData, "application_id");
   const lane = laneFrom(formData);
-  const before = lane ? await laneIds(db, owner.id, lane) : [];
   try {
     // The runner attaches a resume that matches your profile now: made first when it's missing or out of
     // date. If it can't be (the Claude budget), the one it has is sent.
@@ -68,7 +64,7 @@ export async function approveAction(_prev: FormMessageState, formData: FormData)
     if (err instanceof ValidationError || err instanceof IllegalTransitionError) return { error: err.message };
     throw err;
   }
-  redirect(lane ? await nextInLane(db, owner.id, lane, applicationId, before) : "/app/todo?tab=ready");
+  redirect(lane ? await nextInLane(db, owner.id, lane, applicationId) : "/app/todo?tab=ready");
 }
 
 /** Sends an application the apply runner handed back to it again. */
@@ -107,7 +103,6 @@ export async function skipAction(_prev: FormMessageState, formData: FormData): P
   const { db, owner } = await ownerContext();
   const applicationId = text(formData, "application_id");
   const lane = laneFrom(formData);
-  const before = lane ? await laneIds(db, owner.id, lane) : [];
   try {
     await skipApplication(db, owner.id, applicationId, {
       reason: text(formData, "reason"),
@@ -119,7 +114,7 @@ export async function skipAction(_prev: FormMessageState, formData: FormData): P
     if (err instanceof ValidationError || err instanceof IllegalTransitionError) return { error: err.message };
     throw err;
   }
-  redirect(lane ? await nextInLane(db, owner.id, lane, applicationId, before) : text(formData, "back") || "/app/todo");
+  redirect(lane ? await nextInLane(db, owner.id, lane, applicationId) : text(formData, "back") || "/app/todo");
 }
 
 /** Redrafts one answer with AI, with optional guidance for this answer. */
