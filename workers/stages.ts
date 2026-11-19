@@ -10,6 +10,8 @@ import { runPrepare } from "@/server/modules/prepare/prepare.service";
 import { runTrackEmail } from "@/server/modules/tracking/tracking.service";
 import { listUsers, type User } from "@/server/modules/users/users.service";
 import { JOBRX_FROM } from "@/server/integrations/email/app-mail";
+import { readInbox, type InboxConfig, type InboxMail } from "@/server/integrations/email/inbox";
+import { readForwarded } from "@/server/modules/inbound/inbound.service";
 
 /** One stage: what it does for one user, and the variables it needs (any one of them). */
 type Stage = { name: string; needs?: string[]; run: (db: Db, userId: string, user: User) => Promise<{ counts: unknown }> };
@@ -31,24 +33,33 @@ export const prepare = (limit?: number): Stage => ({
   run: (db, userId) => runPrepare({ db, userId, call: createClaudeCaller(), draftCall: createClaudeCaller(DRAFTING_MODEL), limit, log }),
 });
 
-/** Email tracking: reads the job inbox and moves applications by the replies. Claude sorts unclear mail when there's a key. */
+/**
+ * The owner's job inbox over IMAP, while JOB_INBOX_PASSWORD is set (the password is the owner's mailbox's, so
+ * no one else's inbox is read this way); null otherwise.
+ */
+export async function ownerInbox(db: Db, userId: string, user: User): Promise<InboxConfig | null> {
+  const password = process.env.JOB_INBOX_PASSWORD;
+  if (user.role !== "owner" || !password) return null;
+  const { data } = await db.from("user_settings").select("value").eq("user_id", userId).eq("key", "job_inbox").maybeSingle();
+  const inbox = data?.value as { address?: string; imap_host?: string; imap_port?: number } | null;
+  if (!inbox?.address) return null;
+  return { host: inbox.imap_host ?? "imap.purelymail.com", port: inbox.imap_port ?? 993, user: inbox.address, password };
+}
+
+/** Email tracking: reads the user's application mail and moves applications by the replies. Claude sorts unclear mail when there's a key. */
 export const trackEmail: Stage = {
   name: "track_email",
-  needs: ["JOB_INBOX_PASSWORD"],
   /**
-   * Reads the user's job inbox and moves applications by what arrived. JOB_INBOX_PASSWORD is the owner's
-   * mailbox's, so only the owner's inbox is read: a member could otherwise point their inbox setting at the
-   * owner's address and read the owner's mail. (Members get tracking with an inbox password of their own.)
+   * Reads what was forwarded to the user's Jobrx address, and for the owner their job inbox too (over IMAP,
+   * while it has a password), and moves applications by what arrived.
    */
   run: async (db, userId, user) => {
-    if (user.role !== "owner") return { counts: { skipped: "no inbox password of their own yet" } };
-    return runTrackEmail({
-      db,
-      userId,
-      password: process.env.JOB_INBOX_PASSWORD ?? "",
-      call: process.env.ANTHROPIC_API_KEY ? createClaudeCaller() : undefined,
-      log,
-    });
+    const imap = await ownerInbox(db, userId, user);
+    const readMail = async (since: Date): Promise<InboxMail[]> => {
+      const [forwarded, own] = await Promise.all([readForwarded(db, userId, since), imap ? readInbox(imap, since) : []]);
+      return [...forwarded, ...own].sort((a, b) => a.receivedAt.getTime() - b.receivedAt.getTime());
+    };
+    return runTrackEmail({ db, userId, readMail, call: process.env.ANTHROPIC_API_KEY ? createClaudeCaller() : undefined, log });
   },
 };
 

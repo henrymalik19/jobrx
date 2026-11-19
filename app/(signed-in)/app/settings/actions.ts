@@ -8,6 +8,11 @@ import { setPublicHandle, setPublicPageEnabled } from "@/server/modules/public-p
 import { setLinkedInResume } from "@/server/modules/apply/linkedin-resume";
 import { removePushSubscription, savePushSubscription, sendPush, type BrowserSubscription } from "@/server/modules/notifications/push";
 import { setDigestSettings } from "@/server/modules/notifications/notifications.service";
+import { sendForwardingTest } from "@/server/modules/inbound/inbound.service";
+import { appMailer } from "@/server/integrations/email/app-mail";
+import { createServiceClient } from "@/server/db/service-client";
+import { serverEnv } from "@/shared/env";
+import type { FormMessageState } from "../../_components/form-message";
 
 /** Chooses the resume LinkedIn applications send (field `onFile` = "true": the one on LinkedIn; else tailored). */
 export async function setLinkedInResumeAction(formData: FormData) {
@@ -82,6 +87,21 @@ export async function setDigestAction(_prev: DigestState, formData: FormData): P
     });
     refresh();
     return { saved: true };
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: err.message };
+    throw err;
+  }
+}
+
+/** Sends the forwarding test to the application email (it should come back to the forwarding address). */
+export async function sendForwardingTestAction(_prev: FormMessageState): Promise<FormMessageState> {
+  const { owner } = await ownerContext();
+  const env = serverEnv();
+  try {
+    // The service client for this user's own forwarding address and profile only.
+    const to = await sendForwardingTest(createServiceClient(env), owner.id, appMailer(env));
+    refresh();
+    return { ok: `Sent to ${to}. Reload in a minute to see whether it came back.` };
   } catch (err) {
     if (err instanceof ValidationError) return { error: err.message };
     throw err;

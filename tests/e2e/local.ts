@@ -11,6 +11,9 @@ import type { Db } from "@/server/db/types";
  */
 export const E2E_USER = { id: "0e2e0000-0000-4000-8000-000000000001", email: "e2e@jobrx.test", password: "e2e-local-only-password" } as const;
 
+/** The Resend webhook secret the tests' app server checks (a test value, not a secret). */
+export const E2E_WEBHOOK_SECRET = `whsec_${Buffer.from("e2e-local-only-webhook-key").toString("base64")}`;
+
 /** The port the tests' own app server listens on (beside your `pnpm dev` on 3000). */
 export const E2E_PORT = 3100;
 

@@ -3,7 +3,7 @@
 // Claude is pointed at a closed port, so nothing the tests click spends money or leaves the machine.
 import { spawn } from "node:child_process";
 import webpush from "web-push";
-import { E2E_PORT, E2E_USER, localSupabase } from "./local";
+import { E2E_PORT, E2E_USER, E2E_WEBHOOK_SECRET, localSupabase } from "./local";
 
 const { url, anonKey, serviceRoleKey } = localSupabase();
 // Push keys of its own for the run (phone alerts), whatever .env.local has.
@@ -21,6 +21,9 @@ const env = {
   RAILWAY_TOKEN: "",
   VAPID_PUBLIC_KEY: vapid.publicKey,
   VAPID_PRIVATE_KEY: vapid.privateKey,
+  // Resend: a test webhook secret (local.ts signs with it) and no real key; email goes to Mailpit anyway.
+  RESEND_API_KEY: "re_e2e_not_a_key",
+  RESEND_WEBHOOK_SECRET: E2E_WEBHOOK_SECRET,
 };
 // One command line: Windows needs a shell to find pnpm, and the port is a number, nothing to escape.
 const next = spawn(`pnpm exec next dev --port ${E2E_PORT}`, { env, stdio: "inherit", shell: true });

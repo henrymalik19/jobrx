@@ -1,8 +1,8 @@
 // Reads the security code an application form emails you (Greenhouse asks for
-// one when its bot check doesn't pass) from your own inbox over IMAP, so the
-// apply runner can enter it. Only Greenhouse mail that arrived after the form
-// asked is read, and nothing is kept.
-import { readInbox, type InboxConfig } from "./inbox";
+// one when its bot check doesn't pass), so the apply runner can enter it: from
+// mail forwarded to your Jobrx address, or the owner's inbox over IMAP. Only
+// Greenhouse mail that arrived after the form asked is read, and nothing is kept.
+import { readInbox, type InboxConfig, type InboxMail } from "./inbox";
 
 export type { InboxConfig } from "./inbox";
 
@@ -44,14 +44,21 @@ export function pickCode(mails: CodeMail[], since: Date, company: string): strin
   return null;
 }
 
+/** Reads up to `limit` recent mails from senders containing `from`, received since a time. */
+export type MailReader = (since: Date, opts: { from: string; limit: number }) => Promise<InboxMail[]>;
+
+/** A reader over IMAP. */
+export const imapReader = (config: InboxConfig): MailReader => (since, opts) => readInbox(config, since, opts);
+
 /**
  * A reader for the code: waits for it to arrive, checking every few seconds.
  *
+ * @param read - Where mail is read from: {@link imapReader}, or forwarded mail.
  * @returns The code, or null when none arrived within `timeoutMs`.
  */
-export function codeInbox(config: InboxConfig, log: (line: string) => void = () => {}) {
+export function codeInbox(read: MailReader, log: (line: string) => void = () => {}) {
   async function recentMail(since: Date): Promise<CodeMail[]> {
-    const mails = await readInbox(config, since, { from: "greenhouse", limit: 10 });
+    const mails = await read(since, { from: "greenhouse", limit: 10 });
     return mails.map((m) => ({ subject: m.subject, text: m.text, received: m.receivedAt }));
   }
 

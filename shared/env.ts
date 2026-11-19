@@ -14,6 +14,8 @@ const serverSchema = z.object({
   // Resend, for email the app sends itself (verifying an application email); NOTIFY_FROM is who it's from.
   RESEND_API_KEY: z.preprocess(blank, z.string().min(1).optional()),
   NOTIFY_FROM: z.preprocess(blank, z.string().min(1).optional()),
+  // Signs Resend's webhook for mail forwarded to Jobrx (whsec_...); with RESEND_API_KEY, receiving works.
+  RESEND_WEBHOOK_SECRET: z.preprocess(blank, z.string().min(1).optional()),
 });
 
 // Workers (Railway) only need the service-role connection.

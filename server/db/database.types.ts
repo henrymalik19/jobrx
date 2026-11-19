@@ -393,6 +393,46 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"inbound_addresses": {
+                  Row: {
+                    "created_at": string,"local_part": string,"user_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"local_part": string,"user_id": string
+                  }
+                  Update: {
+                    "created_at"?: string,"local_part"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "inbound_addresses_user_id_fkey"
+      columns: ["user_id"]
+isOneToOne: true
+      referencedRelation: "users"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"inbound_emails": {
+                  Row: {
+                    "created_at": string,"from_address": string,"from_name": string,"headers": NonNullable<Json>,"id": string,"message_id": string,"provider_id": string,"received_at": string,"subject": string,"text": string,"user_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"from_address"?: string,"from_name"?: string,"headers"?: NonNullable<Json>,"id"?: string,"message_id": string,"provider_id": string,"received_at": string,"subject"?: string,"text"?: string,"user_id": string
+                  }
+                  Update: {
+                    "created_at"?: string,"from_address"?: string,"from_name"?: string,"headers"?: NonNullable<Json>,"id"?: string,"message_id"?: string,"provider_id"?: string,"received_at"?: string,"subject"?: string,"text"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "inbound_emails_user_id_fkey"
+      columns: ["user_id"]
+isOneToOne: false
+      referencedRelation: "users"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"job_titles": {
                   Row: {
                     "has_role": boolean,"key": string,"last_seen_at": string,"postings": number,"title": string

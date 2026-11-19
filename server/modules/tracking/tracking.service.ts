@@ -1,20 +1,16 @@
-// Email tracking (track_email): reads the job inbox, sorts each new email, finds
-// the application it's about and moves it: a confirmation to Confirmed (kept as
-// evidence), a rejection to Rejected, an interview invite to Interviewing, a
-// recruiter's reply to Heard back. Each email it understands is moved out of the inbox
-// into a Jobrx folder by kind (never deleted), matched or not; security codes and what
-// it can't sort stay. Emails it can't match wait on To do for you to link. Each run is
-// a worker_runs row (worker "track_email").
-import { z } from "zod";
+// Email tracking (track_email): reads the user's application mail (forwarded to their Jobrx address; the
+// owner's job inbox over IMAP too, while it has a password), sorts each new email, finds the application it's
+// about and moves it: a confirmation to Confirmed (kept as evidence), a rejection to Rejected, an interview invite
+// to Interviewing, a recruiter's reply to Heard back. Emails it can't match wait on To do for you to link. It only
+// reads: nothing in anyone's mailbox is moved, marked or deleted. Each run is a worker_runs row (worker "track_email").
 import type { Db, Json } from "@/server/db/types";
 import { check, unwrap, ValidationError } from "@/server/core/errors";
 import type { StructuredCall } from "@/server/integrations/anthropic/claude";
-import { markRead, mergeFolder, moveToFolder, readInbox, type InboxConfig, type InboxMail } from "@/server/integrations/email/inbox";
+import type { InboxMail } from "@/server/integrations/email/inbox";
+import { forgetForwarded, isOwnMail, readForwarded } from "@/server/modules/inbound/inbound.service";
 import { applicationHref, notify, type NotificationKind } from "@/server/modules/notifications/in-app";
 import { getApplication, listApplications, listTransitions, transition, type AppStatus } from "@/server/modules/applications/applications.service";
-import { NOTIFY_HEADER } from "@/server/modules/notifications/digest";
 import { finishRun, startRun } from "@/server/modules/runs/runs.service";
-import { getUserSetting } from "@/server/modules/settings/settings.service";
 import { getMonthlySpend, recordUsage } from "@/server/modules/usage/usage.service";
 import {
   buildClassifyPrompt,
@@ -45,31 +41,6 @@ const TELL: Partial<Record<EmailKind, { kind: NotificationKind; title: (app: Tra
 };
 /** Kinds the rules alone never move an application with, on a recheck: getting one wrong costs the most. */
 const CONFIRM_KINDS = new Set<EmailKind>(["rejection", "interview"]);
-/** Kinds of email marked read once tied to an application: they need nothing from you. */
-const READ_KINDS = new Set<EmailKind>(["confirmation", "rejection"]);
-/** Where a rejection is filed (never deleted). */
-export const REJECTIONS_FOLDER = "Jobrx/Rejected";
-/** Where an application receipt is filed (never deleted). */
-export const RECEIVED_FOLDER = "Jobrx/Received";
-/** Where an interview invite or a recruiter's reply is filed (left unread: they need you). */
-export const INTERVIEWS_FOLDER = "Jobrx/Interviews";
-/** Where job-board alerts are filed. */
-export const ALERTS_FOLDER = "Jobrx/Job alerts";
-/** Where rejections were filed before; its mail is moved into {@link REJECTIONS_FOLDER} once. */
-const OLD_REJECTIONS_FOLDER = "Rejections (Autopilot)";
-/**
- * The folder each kind of email is filed in, out of the inbox, whether or not it's tied to an application (one
- * that isn't still waits on To do). Security codes and what can't be sorted stay in the inbox.
- */
-const FILE_IN: Partial<Record<EmailKind, string>> = {
-  confirmation: RECEIVED_FOLDER,
-  rejection: REJECTIONS_FOLDER,
-  interview: INTERVIEWS_FOLDER,
-  recruiter: INTERVIEWS_FOLDER,
-  job_alert: ALERTS_FOLDER,
-};
-/** Whether an email is marked read as it's filed: a job alert, or a receipt or a no tied to its application. */
-const readOnFiling = (kind: EmailKind, matched: boolean) => kind === "job_alert" || (matched && READ_KINDS.has(kind));
 
 /** The kinds that move an application, and where to. */
 export const MOVES: Partial<Record<EmailKind, AppStatus>> = {
@@ -81,27 +52,14 @@ export const MOVES: Partial<Record<EmailKind, AppStatus>> = {
 /** Statuses an email can be about: approved onwards (one you applied to by hand counts too). */
 const TRACKED: readonly AppStatus[] = ["approved", "manual", "submitted", "confirmed", "responded", "interviewing", "offer", "no_reply"];
 
-/** `user_settings.job_inbox`; IMAP defaults to Purelymail. */
-const inboxSchema = z.object({
-  address: z.string().email(),
-  imap_host: z.string().min(1).default("imap.purelymail.com"),
-  imap_port: z.number().int().positive().default(993),
-});
-
-/** What a tracking run needs; tests pass a fake inbox and Claude. */
+/** What a tracking run needs; tests pass fake mail and Claude. */
 export type TrackDeps = {
   db: Db;
   userId: string;
-  /** The job inbox's password (JOB_INBOX_PASSWORD). */
-  password: string;
   /** Claude, which sorts every email but codes and job-board alerts; without it the rules guess. */
   call?: StructuredCall;
-  readMail?: (config: InboxConfig, since: Date) => Promise<InboxMail[]>;
-  moveMail?: (config: InboxConfig, messageId: string, folder: string) => Promise<boolean>;
-  /** Marks an email read in the inbox. */
-  markMailRead?: (config: InboxConfig, messageId: string) => Promise<boolean>;
-  /** Moves an old folder's mail into a new one and removes the old folder. */
-  mergeMail?: (config: InboxConfig, from: string, folder: string) => Promise<number>;
+  /** The user's mail received since a time, oldest first (default: what was forwarded to their Jobrx address). */
+  readMail?: (since: Date) => Promise<InboxMail[]>;
   now?: () => Date;
   log?: (line: string) => void;
 };
@@ -113,17 +71,12 @@ export type TrackCounts = {
   matched: number;
   moved: number;
   unmatched: number;
-  archived: number;
   deferred: number;
   cost_usd: number;
-  /** Old emails not linked to an application, forgotten this run. */
+  /** Old emails not linked to an application, and forwarded mail past keeping, forgotten this run. */
   forgotten?: number;
-  /** Confirmations and rejections tied to an application, marked read (they need nothing from you). */
-  marked_read?: number;
   /** Recent emails the rules once read wrongly or couldn't place, corrected. */
   rechecked?: number;
-  /** Receipts and rejections tied to an application but left in the inbox, filed this run. */
-  filed_late?: number;
 };
 
 /**
@@ -244,25 +197,15 @@ async function retryUnsorted(db: Db, userId: string, since: Date, now: Date): Pr
  * @throws Only when the run itself can't proceed (no inbox setting, the inbox or database unreachable).
  */
 export async function runTrackEmail(deps: TrackDeps): Promise<{ counts: TrackCounts }> {
-  const { db, userId, now = () => new Date(), log = () => {}, readMail = readInbox, moveMail = moveToFolder, markMailRead = markRead, mergeMail = mergeFolder } = deps;
+  const { db, userId, now = () => new Date(), log = () => {}, readMail = (since: Date) => readForwarded(db, userId, since) } = deps;
   const runId = await startRun(db, WORKER, null, userId);
-  const counts: TrackCounts = { read: 0, new: 0, matched: 0, moved: 0, unmatched: 0, archived: 0, deferred: 0, cost_usd: 0 };
+  const counts: TrackCounts = { read: 0, new: 0, matched: 0, moved: 0, unmatched: 0, deferred: 0, cost_usd: 0 };
   try {
-    const inboxRaw = await getUserSetting(db, userId, "job_inbox");
-    // A user without a job inbox has nothing to track.
-    if (inboxRaw == null) {
-      await finishRun(db, runId, { ok: true, counts });
-      return { counts };
-    }
-    const inbox = inboxSchema.parse(inboxRaw);
-    counts.forgotten = await forgetOldEmails(db, userId, now());
-    const config: InboxConfig = { host: inbox.imap_host, port: inbox.imap_port, user: inbox.address, password: deps.password };
-    // Rejections filed in the old folder join the new one (once; after that the old folder is gone).
-    await mergeMail(config, OLD_REJECTIONS_FOLDER, REJECTIONS_FOLDER).catch((err) => log(`track_email: couldn't move the old rejections folder: ${(err as Error).message}`));
+    counts.forgotten = (await forgetOldEmails(db, userId, now())) + (await forgetForwarded(db, userId, now()));
     const [mails, apps, transitions, budget] = await Promise.all([
       readSince(db, userId, now())
         .then((since) => retryUnsorted(db, userId, since, now()))
-        .then((since) => readMail(config, since)),
+        .then((since) => readMail(since)),
       listApplications(db, userId, TRACKED),
       listTransitions(db),
       getMonthlySpend(db, userId, now()),
@@ -276,49 +219,19 @@ export async function runTrackEmail(deps: TrackDeps): Promise<{ counts: TrackCou
     }));
     const byId = new Map(tracked.map((a) => [a.id, a]));
 
-    /**
-     * Files an email out of the inbox into its kind's folder, marking it read when it needs nothing from you
-     * (a job alert, a receipt or a no tied to its application); an interview, a recruiter's reply and one it
-     * couldn't place stay unread so they stand out. Returns whether it was filed.
-     */
-    const fileMail = async (messageId: string, kind: EmailKind, company: string, matched = true): Promise<boolean> => {
-      if (readOnFiling(kind, matched)) {
-        try {
-          if (await markMailRead(config, messageId)) counts.marked_read = (counts.marked_read ?? 0) + 1;
-        } catch (err) {
-          log(`track_email: couldn't mark the ${kind} from ${company} read: ${(err as Error).message}`);
-        }
-      }
-      const folder = FILE_IN[kind];
-      if (!folder) return false;
-      try {
-        if (await moveMail(config, messageId, folder)) {
-          counts.archived++;
-          return true;
-        }
-      } catch (err) {
-        log(`track_email: couldn't file the ${kind} from ${company} in ${folder}: ${(err as Error).message}`);
-      }
-      return false;
-    };
-
     // Recent emails the rules once read wrongly or couldn't tie to an application, corrected.
-    counts.rechecked = await reconsiderRecent(db, userId, tracked, transitions, now(), fileMail, log).catch((err) => {
+    counts.rechecked = await reconsiderRecent(db, userId, tracked, transitions, now(), log).catch((err) => {
       log(`track_email: recheck failed: ${err instanceof Error ? err.message : String(err)}`);
       return 0;
     });
-    // Receipts and rejections tied to an application but still in the inbox (linked by you in the app,
-    // which can't reach the inbox, or sorted before the folders existed): filed now.
-    counts.filed_late = await fileLeftover(db, userId, now(), config, moveMail, markMailRead).catch((err) => {
-      log(`track_email: filing left-over mail failed: ${err instanceof Error ? err.message : String(err)}`);
-      return 0;
-    });
     let spent = budget.spent;
+    const handled = new Set<string>();
 
     for (const mail of mails) {
-      if (seen.has(mail.messageId)) continue;
-      // The digest this app sends to the same inbox.
-      if (mail.headers[NOTIFY_HEADER.toLowerCase()]) continue;
+      if (seen.has(mail.messageId) || handled.has(mail.messageId)) continue;
+      handled.add(mail.messageId);
+      // Jobrx's own mail (the digest, a verification link, the forwarding test).
+      if (isOwnMail(mail)) continue;
       const match = matchEmail(mail, tracked);
       // Only a code or a job board's alert is sorted by its sender or subject alone. Everything else is read by
       // Claude: a receipt and a no can thank you in the same words, and a misread files mail in the wrong place
@@ -372,15 +285,9 @@ export async function runTrackEmail(deps: TrackDeps): Promise<{ counts: TrackCou
         .single();
       if (error) throw new Error(`record email: ${error.message}`);
       counts.new++;
-      const filed = () => db.from("emails").update({ archived_at: now().toISOString() }).eq("id", row.id);
-      if (!relevant) {
-        // A job alert to its folder; a code or what couldn't be sorted stays.
-        if (FILE_IN[kind] && (await fileMail(mail.messageId, kind, mail.fromAddress, false))) await filed();
-        continue;
-      }
+      if (!relevant) continue;
       if (!confident) {
-        // Filed like any other of its kind, left unread: it's on To do to link.
-        if (await fileMail(mail.messageId, kind, match.app?.company ?? mail.fromAddress, false)) await filed();
+        // It waits on To do to link.
         counts.unmatched++;
         await notify(db, userId, {
           kind: "email_to_sort",
@@ -408,9 +315,6 @@ export async function runTrackEmail(deps: TrackDeps): Promise<{ counts: TrackCou
           dedupeKey: `email:${mail.messageId}`,
         });
       }
-      // A receipt or a no, tied to its application, needs nothing from you: read. Anything that might
-      // (an interview, a recruiter, one it couldn't place) stays unread so it stands out.
-      if (await fileMail(mail.messageId, kind, app.company)) await filed();
     }
     counts.cost_usd = Math.round(counts.cost_usd * 10000) / 10000;
     await finishRun(db, runId, { ok: true, counts });
@@ -450,50 +354,6 @@ export async function listUnmatchedEmails(db: Db, userId: string, now = new Date
 
 const DISMISSED = "not about an application (you said)";
 
-/** How far back left-over mail is filed, and how many a run files. */
-const LEFTOVER_DAYS = 30;
-const LEFTOVER_PER_RUN = 25;
-
-/**
- * Files sorted emails still in the inbox into their kind's folder: ones you linked in the app (which can't
- * reach the inbox), and ones sorted before their folder existed (job alerts, interviews, unmatched ones). One
- * no longer in the inbox (you moved or deleted it) is marked done too, so it isn't looked for again; so is one
- * you dismissed, which stays where it is.
- *
- * @returns How many were moved into a folder.
- */
-async function fileLeftover(
-  db: Db,
-  userId: string,
-  now: Date,
-  config: InboxConfig,
-  moveMail: typeof moveToFolder,
-  markMailRead: typeof markRead,
-): Promise<number> {
-  const rows = unwrap(
-    await db
-      .from("emails")
-      .select("id, message_id, classification, application_id, reason")
-      .eq("user_id", userId)
-      .is("archived_at", null)
-      .in("classification", Object.keys(FILE_IN))
-      .gte("received_at", new Date(now.getTime() - LEFTOVER_DAYS * 86_400_000).toISOString())
-      .order("received_at", { ascending: false })
-      .limit(LEFTOVER_PER_RUN),
-    "list left-over mail",
-  );
-  let filed = 0;
-  for (const r of rows) {
-    const kind = r.classification as EmailKind;
-    if (r.reason !== DISMISSED) {
-      // A failure to reach the inbox throws, and is tried again next run.
-      if (readOnFiling(kind, !!r.application_id)) await markMailRead(config, r.message_id).catch(() => false);
-      if (await moveMail(config, r.message_id, FILE_IN[kind]!)) filed++;
-    }
-    check(await db.from("emails").update({ archived_at: now.toISOString() }).eq("id", r.id), "file left-over email");
-  }
-  return filed;
-}
 const toView = (r: { id: string; received_at: string; from_addr: string | null; subject: string | null; snippet: string | null; classification: string | null; reason: string | null }): UnmatchedEmail => ({
   id: r.id,
   receivedAt: r.received_at,
@@ -632,7 +492,6 @@ async function reconsiderRecent(
   tracked: TrackedApp[],
   transitions: Record<string, string[]>,
   now: Date,
-  file: (messageId: string, kind: EmailKind, company: string) => Promise<boolean>,
   log: (line: string) => void,
 ): Promise<number> {
   const rows = unwrap(
@@ -692,7 +551,6 @@ async function reconsiderRecent(
       app.status = moved;
       log(`track_email: rechecked "${r.subject}": ${app.company} -> ${moved}`);
     }
-    if (await file(r.message_id, kind, app.company)) check(await db.from("emails").update({ archived_at: now.toISOString() }).eq("id", r.id), "file email");
     corrected++;
   }
   return corrected;

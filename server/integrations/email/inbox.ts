@@ -1,6 +1,6 @@
-// The job inbox over IMAP (Purelymail by default): reading recent mail, and
-// moving one message to a folder. Used by the apply runner (emailed security
-// codes) and the track_email stage. Nothing is ever deleted.
+// The owner's job inbox over IMAP (Purelymail by default), read only: recent mail for the track_email stage
+// and the apply runner's emailed security codes. Nothing is moved, marked or deleted. Everyone else's mail
+// arrives by forwarding (server/modules/inbound).
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 
@@ -71,81 +71,5 @@ export async function readInbox(config: InboxConfig, since: Date, opts: { from?:
     } finally {
       lock.release();
     }
-  });
-}
-
-/**
- * Marks one email read (by its Message-ID): one that needs nothing from you, like an application receipt.
- *
- * @returns Whether it was found.
- */
-export async function markRead(config: InboxConfig, messageId: string): Promise<boolean> {
-  return withInbox(config, async (client) => {
-    const lock = await client.getMailboxLock("INBOX");
-    try {
-      const uids = await client.search({ header: { "message-id": messageId } }, { uid: true });
-      if (!uids || uids.length === 0) return false;
-      return client.messageFlagsAdd(uids, ["\\Seen"], { uid: true });
-    } finally {
-      lock.release();
-    }
-  });
-}
-
-/**
- * Moves one INBOX message (by Message-ID) to `folder`, creating the folder if needed. A nested folder is
- * written with "/" ("Jobrx/Received") and created with the server's own separator.
- *
- * @returns Whether the message was found and moved.
- */
-export async function moveToFolder(config: InboxConfig, messageId: string, folder: string): Promise<boolean> {
-  return withInbox(config, async (client) => {
-    const path = await ensureFolder(client, folder);
-    const lock = await client.getMailboxLock("INBOX");
-    try {
-      const uids = await client.search({ header: { "message-id": messageId } }, { uid: true });
-      if (!uids || uids.length === 0) return false;
-      return (await client.messageMove(uids, path, { uid: true })) !== false;
-    } finally {
-      lock.release();
-    }
-  });
-}
-
-/** Creates a folder (and its parents) if it isn't there; returns its path in the server's own separator. */
-async function ensureFolder(client: ImapFlow, folder: string): Promise<string> {
-  const folders = await client.list();
-  const delimiter = folders.find((f) => f.path === "INBOX")?.delimiter || folders[0]?.delimiter || "/";
-  const parts = folder.split("/");
-  for (let i = 1; i <= parts.length; i++) {
-    const path = parts.slice(0, i).join(delimiter);
-    if (!folders.some((f) => f.path === path)) await client.mailboxCreate(path);
-  }
-  return parts.join(delimiter);
-}
-
-/**
- * Moves everything in an old folder into `folder` (created if needed) and removes the old one; nothing
- * happens when the old folder isn't there.
- *
- * @returns How many messages moved.
- */
-export async function mergeFolder(config: InboxConfig, from: string, folder: string): Promise<number> {
-  return withInbox(config, async (client) => {
-    if (!(await client.list()).some((f) => f.path === from)) return 0;
-    const path = await ensureFolder(client, folder);
-    const lock = await client.getMailboxLock(from);
-    let moved = 0;
-    try {
-      const uids = (await client.search({ all: true }, { uid: true })) || [];
-      if (uids.length) {
-        await client.messageMove(uids, path, { uid: true });
-        moved = uids.length;
-      }
-    } finally {
-      lock.release();
-    }
-    await client.mailboxDelete(from);
-    return moved;
   });
 }

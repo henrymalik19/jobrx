@@ -29,7 +29,8 @@ import { notify, relayPushesThrough } from "@/server/modules/notifications/in-ap
 import { LIVE_SHOT_MS, liveViewWanted, removeLiveShot, uploadLiveShot } from "@/server/modules/apply/live-view";
 import type { LinkedInJob } from "@/server/modules/discovery/linkedin-jobs";
 import { recordRun } from "@/server/integrations/browser/run-recorder";
-import { codeInbox } from "@/server/integrations/email/code-inbox";
+import { codeInbox, imapReader } from "@/server/integrations/email/code-inbox";
+import { readForwarded } from "@/server/modules/inbound/inbound.service";
 import { listReadyToApply } from "@/server/modules/apply/apply.repository";
 import { greenhouseExtras, type HomePlace, type Schooling, type WorkRole } from "@/server/modules/apply/fill-plan";
 import { usStateName } from "@/server/modules/criteria/places";
@@ -133,6 +134,12 @@ async function profileBasics(db: Db, userId: string): Promise<{ name: string; em
     school: edu ? { institution: edu.institution, degree: edu.degree, fieldOfStudy: edu.field_of_study, startYear: edu.start_year, endYear: edu.end_year } : null,
     role: job ? { employer: job.employer, title: job.title, startDate: job.start_date, endDate: job.end_date, isCurrent: job.is_current } : null,
   };
+}
+
+/** Whether mail forwarded to your Jobrx address has arrived (forwarding works), as you can read it. */
+async function forwardingWorks(db: Db): Promise<boolean> {
+  const { data } = await db.from("inbound_emails").select("id").limit(1);
+  return (data?.length ?? 0) > 0;
 }
 
 /** Your job inbox's address (the job_inbox setting), where forms email security codes. */
@@ -329,15 +336,19 @@ async function main() {
   };
   // SIGBREAK is Ctrl+Break on Windows; SIGHUP is the terminal window closing.
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK"] as const) process.on(signal, () => void stop());
-  // With the job inbox's password, the security code a form emails is read and entered for you.
+  // The security code a form emails is read and entered for you: from the job inbox with its password, or from
+  // mail forwarded to your Jobrx address once forwarding works (some has arrived).
   const inboxUser = env.APPLY_IMAP_USER ?? (await jobInboxAddress(db, userId));
+  const forwarding = !(inboxUser && env.JOB_INBOX_PASSWORD) && (await forwardingWorks(db));
   const inbox = inboxUser && env.JOB_INBOX_PASSWORD
-    ? codeInbox({ host: env.APPLY_IMAP_HOST, port: env.APPLY_IMAP_PORT, user: inboxUser, password: env.JOB_INBOX_PASSWORD }, log)
-    : null;
+    ? codeInbox(imapReader({ host: env.APPLY_IMAP_HOST, port: env.APPLY_IMAP_PORT, user: inboxUser, password: env.JOB_INBOX_PASSWORD }), log)
+    : forwarding
+      ? codeInbox((since, opts) => readForwarded(db, userId, since, opts), log)
+      : null;
   log(`apply runner started for ${name}; watching for approved ${APPLY_ATS.join(", ")} applications (Ctrl+C to stop)`);
   log(`apply runner version ${shortSha(status.version)}${status.message ? ` ("${status.message}")` : ""}${status.localChanges ? ", with uncommitted changes" : ""}`);
   await reportRunnerStatus(db, userId, status).catch((err) => log(`couldn't report the runner's version: ${(err as Error).message}`));
-  log(inbox ? `emailed security codes are read from ${inboxUser}` : "emailed security codes: you type them (no job inbox address or JOB_INBOX_PASSWORD)");
+  log(inbox ? `emailed security codes are read from ${forwarding ? "mail forwarded to Jobrx" : inboxUser}` : "emailed security codes: you type them (forwarding to Jobrx isn't set up: Settings > Email tracking)");
   const linkedinOn = env.APPLY_LINKEDIN === "1";
   log(linkedinOn
     ? `LinkedIn Easy Apply is on: searched every 6 hours, at most ${env.APPLY_LINKEDIN_PER_HOUR} an hour and ${env.APPLY_LINKEDIN_PER_DAY} a day`

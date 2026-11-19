@@ -15,6 +15,7 @@ import { HandleForm } from "./handle-form";
 import { VersionsCard } from "./versions-card";
 import { PhoneAlerts } from "./phone-alerts";
 import { DigestForm } from "./digest-form";
+import { EmailTrackingSetting } from "./email-tracking";
 import { formatTime, getDigestSettings } from "@/server/modules/notifications/notifications.service";
 import { getUserSetting } from "@/server/modules/settings/settings.service";
 import { listPushDevices, vapidKeys } from "@/server/modules/notifications/push";
@@ -54,6 +55,11 @@ async function digestAddress(db: Awaited<ReturnType<typeof ownerContext>>["db"],
   if (to) return to;
   const inbox = (await getUserSetting(db, userId, "job_inbox")) as { address?: unknown } | null;
   return typeof inbox?.address === "string" ? inbox.address : email;
+}
+
+async function EmailTracking() {
+  const { owner } = await ownerContext();
+  return <EmailTrackingSetting userId={owner.id} />;
 }
 
 async function DigestSetting() {
@@ -224,6 +230,7 @@ export default function SettingsPage() {
     <main className="flex flex-col gap-6">
       <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
       <Suspense fallback={<FormSkeleton cards={2} />}>
+        <EmailTracking />
         <DigestSetting />
         <PhoneAlertsSetting />
         <PublicPageSetting />

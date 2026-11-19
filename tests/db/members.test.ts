@@ -15,7 +15,7 @@ import {
   restoreAccess,
 } from "@/server/modules/members/members.service";
 import { listUsers } from "@/server/modules/users/users.service";
-import { trackEmail } from "@/workers/stages";
+import { ownerInbox, trackEmail } from "@/workers/stages";
 import { testUser } from "./users";
 import type {} from "./setup";
 
@@ -167,10 +167,19 @@ describe("what a member can't do", () => {
     expect((await m.client.from("user_settings").select("value").eq("key", "llm_monthly_cap_usd").single()).data?.value).toBe(10);
   });
 
-  it("doesn't get the owner's job inbox read for them", async () => {
+  it("never has the owner's job inbox read for them, whatever their inbox setting says", async () => {
     const m = await joinedMember();
     await db.from("user_settings").upsert({ user_id: m.id, key: "job_inbox", value: { address: "owner@example.test" } });
-    const out = await trackEmail.run(db, m.id, { id: m.id, role: "member" });
-    expect(out.counts).toEqual({ skipped: "no inbox password of their own yet" });
+    const before = process.env.JOB_INBOX_PASSWORD;
+    process.env.JOB_INBOX_PASSWORD = "the-owner's-password";
+    try {
+      expect(await ownerInbox(db, m.id, { id: m.id, role: "member" })).toBeNull();
+      // Their tracking reads only what was forwarded to their own Jobrx address (nothing yet).
+      const out = await trackEmail.run(db, m.id, { id: m.id, role: "member" });
+      expect(out.counts).toMatchObject({ read: 0, new: 0 });
+    } finally {
+      if (before === undefined) delete process.env.JOB_INBOX_PASSWORD;
+      else process.env.JOB_INBOX_PASSWORD = before;
+    }
   });
 });

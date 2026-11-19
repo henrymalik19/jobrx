@@ -1,6 +1,6 @@
 // M6 email tracking against a local Supabase, with a fake inbox and Claude:
 //   - a confirmation confirms the application and is kept as evidence
-//   - a matched rejection rejects it and is moved out of the inbox (archived_at)
+//   - a matched rejection rejects it (nothing in the mailbox is moved or marked: tracking only reads)
 //   - an email the rules can't sort is sorted by Claude (an interview invite)
 //   - one approved application a confirmation names is marked submitted, then confirmed
 //   - an email naming a company you applied to twice, without the title, is left unmatched
@@ -11,7 +11,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { Db } from "@/server/db/types";
 import type { StructuredCall } from "@/server/integrations/anthropic/claude";
 import type { InboxMail } from "@/server/integrations/email/inbox";
-import { ALERTS_FOLDER, forgetOldEmails, INTERVIEWS_FOLDER, linkEmail, listApplicationEmails, listUnsortedEmails, RECEIVED_FOLDER, REJECTIONS_FOLDER, runTrackEmail } from "@/server/modules/tracking/tracking.service";
+import { forgetOldEmails, linkEmail, listApplicationEmails, listUnsortedEmails, runTrackEmail } from "@/server/modules/tracking/tracking.service";
 import type {} from "./setup";
 import { setUserSettings, testUser } from "./users";
 
@@ -56,7 +56,6 @@ const mail = (id: string, subject: string, text: string, extra: Partial<InboxMai
 });
 
 const inbox: InboxMail[] = [];
-const moved: string[] = [];
 // Claude sorts the email the rules can't (a recruiter's note about a call) and confirms rejections.
 const calls: string[] = [];
 const call: StructuredCall = async ({ user }) => {
@@ -68,22 +67,11 @@ const call: StructuredCall = async ({ user }) => {
     usage: { input_tokens: 100, output_tokens: 20 },
   } as never;
 };
-const markedRead: string[] = [];
 const deps = () => ({
   db,
   userId,
-  password: "unused",
   call,
   readMail: async () => inbox,
-  moveMail: async (_c: unknown, messageId: string, folder: string) => {
-    moved.push(`${messageId} -> ${folder}`);
-    return true;
-  },
-  mergeMail: async () => 0,
-  markMailRead: async (_c: unknown, messageId: string) => {
-    markedRead.push(messageId);
-    return true;
-  },
 });
 
 async function status(key: string) {
@@ -127,10 +115,7 @@ afterAll(async () => {
 describe("track_email", () => {
   it("moves the applications the inbox is about", async () => {
     const { counts } = await runTrackEmail(deps());
-    expect(counts).toMatchObject({ read: 6, new: 5, matched: 4, moved: 4, unmatched: 1, archived: 5, marked_read: 3 });
-    // Receipts and the rejection tied to their applications are read; the interview invite and the receipt it
-    // couldn't place stay unread.
-    expect(markedRead.sort()).toEqual([`<${tag}-a@mail.test>`, `<${tag}-c@mail.test>`, `<${tag}-r@mail.test>`].sort());
+    expect(counts).toMatchObject({ read: 6, new: 5, matched: 4, moved: 4, unmatched: 1 });
 
     expect(await status("conf")).toBe("confirmed");
     const { data: evidence } = await db.from("application_evidence_items").select("kind, email_message_id").eq("application_id", apps.conf);
@@ -141,15 +126,8 @@ describe("track_email", () => {
     expect(calls).toContain("rejection");
     const { data: rejReason } = await db.from("emails").select("reason").eq("message_id", `<${tag}-r@mail.test>`).single();
     expect(rejReason!.reason).toMatch(/^Claude: reads as a rejection/);
-    // Every email it understood is filed out of the inbox by kind, the one it couldn't place too (it's on To do).
-    expect(moved.sort()).toEqual(
-      [
-        `<${tag}-r@mail.test> -> ${REJECTIONS_FOLDER}`, `<${tag}-c@mail.test> -> ${RECEIVED_FOLDER}`, `<${tag}-a@mail.test> -> ${RECEIVED_FOLDER}`,
-        `<${tag}-i@mail.test> -> ${INTERVIEWS_FOLDER}`, `<${tag}-t@mail.test> -> ${RECEIVED_FOLDER}`,
-      ].sort(),
-    );
-    const { data: rejection } = await db.from("emails").select("archived_at, application_id").eq("message_id", `<${tag}-r@mail.test>`).single();
-    expect(rejection).toMatchObject({ application_id: apps.rej, archived_at: expect.any(String) });
+    const { data: rejection } = await db.from("emails").select("application_id").eq("message_id", `<${tag}-r@mail.test>`).single();
+    expect(rejection).toEqual({ application_id: apps.rej });
 
     expect(await status("int")).toBe("interviewing");
     // You hear about the interview invite, the rejection and the email it couldn't place; receipts aren't news.
@@ -161,7 +139,7 @@ describe("track_email", () => {
     expect(twin).toEqual({ application_id: null, match_confidence: 0.5, classification: "confirmation" });
   });
 
-  it("reads LinkedIn's receipts as receipts and files job alerts, correcting a receipt once taken for an alert", async () => {
+  it("reads LinkedIn's receipts as receipts, correcting a receipt once taken for an alert", async () => {
     await addApp("li", `Linkco ${tag}`, "Staff Engineer", "submitted");
     await addApp("li2", `Oldlinkco ${tag}`, "Lead Engineer", "submitted");
     // Saved by an earlier run as a job alert (LinkedIn's sender), still in the inbox.
@@ -174,16 +152,11 @@ describe("track_email", () => {
       mail("li", `Your application to Staff Engineer at Linkco ${tag}`, `Your application was sent to Linkco ${tag}. Staff Engineer · Remote`, li),
       mail("alert", "30+ new jobs for you", "Senior Engineer at ...", { fromAddress: "jobalerts-noreply@linkedin.com", fromName: "LinkedIn Job Alerts" }),
     ];
-    moved.length = 0;
-    markedRead.length = 0;
     await runTrackEmail({ ...deps(), readMail: async () => fresh });
     expect(await status("li")).toBe("confirmed");
     expect(await status("li2")).toBe("confirmed");
-    expect(moved).toEqual(expect.arrayContaining([
-      `<${tag}-li@mail.test> -> ${RECEIVED_FOLDER}`, `<${tag}-li2@mail.test> -> ${RECEIVED_FOLDER}`, `<${tag}-alert@mail.test> -> ${ALERTS_FOLDER}`,
-    ]));
-    // A job alert needs nothing from you: read.
-    expect(markedRead).toEqual(expect.arrayContaining([`<${tag}-li@mail.test>`, `<${tag}-alert@mail.test>`]));
+    const { data: alert } = await db.from("emails").select("classification").eq("message_id", `<${tag}-alert@mail.test>`).single();
+    expect(alert).toEqual({ classification: "job_alert" });
   });
 
   it("reads nothing twice", async () => {
@@ -218,17 +191,6 @@ describe("track_email", () => {
     expect((await listUnsortedEmails(db, userId, tracked)).map((e) => e.id)).not.toContain(row!.id);
     expect((await listApplicationEmails(db, userId, apps.odd)).map((e) => [e.id, e.kind])).toEqual([[row!.id, "rejection"]]);
 
-    // The next run files it out of the inbox, since linking in the app can't.
-    moved.length = 0;
-    const { counts } = await runTrackEmail(deps());
-    expect(counts.filed_late).toBe(1);
-    expect(moved).toEqual([`<${tag}-odd@mail.test> -> ${REJECTIONS_FOLDER}`]);
-    const { data: after } = await db.from("emails").select("archived_at").eq("id", row!.id).single();
-    expect(after!.archived_at).not.toBeNull();
-    // And isn't looked for again.
-    moved.length = 0;
-    expect((await runTrackEmail(deps())).counts.filed_late).toBe(0);
-    expect(moved).toEqual([]);
   });
 });
 
@@ -284,10 +246,9 @@ describe("rechecking recent emails", () => {
     expect(await status("amp")).toBe("confirmed");
     const { data: fixed } = await db.from("emails").select("classification, application_id").eq("message_id", `<${tag}-amp@mail.test>`).single();
     expect(fixed).toEqual({ classification: "confirmation", application_id: apps.amp });
-    expect(moved).toEqual(expect.arrayContaining([`<${tag}-misread@mail.test> -> ${RECEIVED_FOLDER}`, `<${tag}-amp@mail.test> -> ${RECEIVED_FOLDER}`]));
   });
 
-  it("has Claude read every email but codes and job alerts, and leaves one it can't sort in the inbox", async () => {
+  it("has Claude read every email but codes and job alerts, and reads one it can't sort again next run", async () => {
     await addApp("nope", `Nopeco ${tag}`, "Full-Stack Engineer", "submitted");
     await addApp("flaky", `Flakyco ${tag}`, "Data Engineer", "submitted");
     const fresh = [
@@ -302,20 +263,16 @@ describe("rechecking recent emails", () => {
       if (input.user.includes("Flakyco")) return { output: null, error: "overloaded", model: "claude-haiku-5-5", usage: { input_tokens: 0, output_tokens: 0 } } as never;
       return call(input);
     };
-    moved.length = 0;
     const { counts } = await runTrackEmail({ ...deps(), call: picky, readMail: async () => fresh });
     expect(await status("nope")).toBe("rejected");
-    expect(moved).toContain(`<${tag}-nope@mail.test> -> ${REJECTIONS_FOLDER}`);
     const { data: nope } = await db.from("emails").select("reason").eq("message_id", `<${tag}-nope@mail.test>`).single();
     expect(nope!.reason).toMatch(/^Claude: reads as a rejection; rules said confirmation/);
-    // Claude failed: not guessed, not saved, not filed; tried again next run.
+    // Claude failed: not guessed, not saved; tried again next run.
     expect(counts.deferred).toBe(1);
     expect(await status("flaky")).toBe("submitted");
     const { data: flaky } = await db.from("emails").select("id").eq("message_id", `<${tag}-flaky@mail.test>`);
     expect(flaky).toEqual([]);
-    expect(moved.some((m) => m.includes("flaky"))).toBe(false);
-    // The job board's alert is filed by its sender, without asking Claude.
+    // The job board's alert is sorted by its sender, without asking Claude.
     expect(asked.some((u) => u.includes("9 more jobs"))).toBe(false);
-    expect(moved).toContain(`<${tag}-alert2@mail.test> -> ${ALERTS_FOLDER}`);
   });
 });
