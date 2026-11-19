@@ -22,7 +22,11 @@ import {
 } from "@/server/modules/profile/profile.service";
 import { deleteSavedAnswer, updateSavedAnswer } from "@/server/modules/questions/saved-answers";
 import { PROFILE_CHANGED_KEY, recheckOpenQuestions } from "@/server/modules/prepare/prepare.service";
-import { putUserSetting } from "@/server/modules/settings/settings.service";
+import { getSetting, putUserSetting } from "@/server/modules/settings/settings.service";
+import { createServiceClient } from "@/server/db/service-client";
+import { appMailer } from "@/server/integrations/email/app-mail";
+import { sendEmailVerification } from "@/server/modules/profile/application-email";
+import { serverEnv } from "@/shared/env";
 import type { FormMessageState } from "../../_components/form-message";
 
 const values = (formData: FormData) => Object.fromEntries([...formData.entries()].map(([k, v]) => [k, String(v)]));
@@ -146,4 +150,21 @@ export async function deleteSavedAnswerAction(formData: FormData) {
   const { db, owner } = await ownerContext();
   await deleteSavedAnswer(db, owner.id, String(formData.get("question_id")));
   refresh();
+}
+
+/** Emails a link to verify the application email (the one on the profile). */
+export async function sendEmailVerificationAction(_prev: FormMessageState): Promise<FormMessageState> {
+  const { owner } = await ownerContext();
+  const env = serverEnv();
+  // The links live in a table only the server reads; this acts for the signed-in user alone.
+  const admin = createServiceClient(env);
+  try {
+    const appUrl = String((await getSetting(admin, "app_url")) ?? "https://jobrx.ai");
+    await sendEmailVerification(admin, owner.id, { mailer: appMailer(env), appUrl });
+  } catch (err) {
+    if (err instanceof ValidationError) return { error: err.message };
+    throw err;
+  }
+  refresh();
+  return { ok: "Sent. Open the link in that email to verify it." };
 }

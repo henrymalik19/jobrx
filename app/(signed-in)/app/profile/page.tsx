@@ -33,6 +33,7 @@ import {
   saveProfileAction,
 } from "./actions";
 import { SkillCleanup } from "./skill-cleanup";
+import { ApplicationEmailStatus } from "./application-email";
 import { listSavedAnswers, type SavedAnswer } from "@/server/modules/questions/saved-answers";
 import { SavedAnswersList } from "./saved-answers-list";
 import { SkillRow } from "./skill-row";
@@ -293,7 +294,10 @@ async function Profile({ searchParams }: { searchParams: SearchParams }) {
           <CardTitle>Contact and summary</CardTitle>
           <CardDescription>Used to fill in application forms and at the top of your resume.</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="flex flex-col gap-5">
+          <Suspense fallback={null}>
+            <ApplicationEmailStatus userId={owner.id} signInEmail={owner.email} />
+          </Suspense>
           <ActionForm action={saveProfileAction} submitLabel="Save profile" className="gap-5">
             <FieldGroup title="Name" hint="As it goes on applications.">
               <div className="grid gap-3 sm:grid-cols-3">
@@ -302,9 +306,9 @@ async function Profile({ searchParams }: { searchParams: SearchParams }) {
                 <Field label="Preferred name" name="preferred_name"><Input id="preferred_name" name="preferred_name" defaultValue={p.preferred_name ?? ""} placeholder="Optional" /></Field>
               </div>
             </FieldGroup>
-            <FieldGroup title="Contact" hint="Where employers reach you.">
+            <FieldGroup title="Contact" hint="Where employers reach you. The application email can differ from the one you sign in with; it's used once verified.">
               <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Email" name="email"><Input id="email" name="email" type="email" defaultValue={p.email ?? ""} /></Field>
+                <Field label="Application email" name="email"><Input id="email" name="email" type="email" defaultValue={p.email ?? ""} /></Field>
                 <Field label="Phone" name="phone"><Input id="phone" name="phone" type="tel" defaultValue={p.phone ?? ""} /></Field>
               </div>
             </FieldGroup>

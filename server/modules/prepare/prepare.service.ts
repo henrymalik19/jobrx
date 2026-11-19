@@ -253,6 +253,9 @@ function answerFromQuestion(row: Draft, q: FormQuestion, question: Question, ctx
   if (question.answer_source === "drafted") return "draft";
   if (question.answer_source === "ask") return { ...linked, bucket: "needs_user", reason: `"${question.label}" is always answered by you` };
   const value = questionValue(question, mapping, ctx);
+  if (value == null && question.key === "email" && ctx.profile.profile.email) {
+    return { ...linked, bucket: "needs_user", reason: "your application email isn't verified yet (open the link Jobrx emailed it, or send one from Profile)" };
+  }
   if (value == null) return { ...linked, bucket: "needs_user", reason: `${WHERE[question.answer_source]} "${question.label}"` };
   const shaped = shapeAnswer(q, value, mapping.inverted);
   if (!shaped) {

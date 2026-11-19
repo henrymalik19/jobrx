@@ -56,7 +56,10 @@ export function profileValue(key: string, data: ProfileData, opts: { country: st
       const company = opts.company;
       return data.employment.some((e) => sameCompany(e.employer, company));
     }
-    case "first_name": case "last_name": case "preferred_name": case "email": case "phone":
+    case "email":
+      // Only a verified application email goes on an application (see profile/application-email.ts).
+      return p.email && p.email_verified_at ? p.email : null;
+    case "first_name": case "last_name": case "preferred_name": case "phone":
     case "postal_code": case "linkedin_url": case "github_url": case "website_url": case "notice_period":
       return p[key] ?? null;
     default:

@@ -10,7 +10,7 @@ const job = (employer: string, start: string, end: string | null, skills: string
 });
 const data: ProfileData = {
   profile: {
-    user_id: "u", first_name: "Sam", last_name: "Lee", preferred_name: null, email: "sam@example.test", phone: null,
+    user_id: "u", first_name: "Sam", last_name: "Lee", preferred_name: null, email: "sam@example.test", email_verified_at: "2026-01-01T00:00:00Z", phone: null,
     city: "Houston", state: "TX", country: "US", postal_code: null, linkedin_url: "https://www.linkedin.com/in/someone",
     github_url: null, website_url: null, headline: null, summary: null, notice_period: null, security_clearance: null,
     created_at: "", updated_at: "",
@@ -38,6 +38,12 @@ describe("profileValue", () => {
     expect(profileValue("current_location", data, opts)).toBe("Houston, TX");
     expect(profileValue("linkedin_url", data, opts)).toBe("https://www.linkedin.com/in/someone");
     expect(profileValue("github_url", data, opts)).toBeNull();
+  });
+
+  it("gives the application email only once it's verified", () => {
+    expect(profileValue("email", data, opts)).toBe("sam@example.test");
+    const unverified = { ...data, profile: { ...data.profile, email_verified_at: null } };
+    expect(profileValue("email", unverified, opts)).toBeNull();
   });
 
   it("reads the current job and total years from employment", () => {

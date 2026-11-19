@@ -11,6 +11,9 @@ const serverSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   OWNER_USER_ID: z.string().uuid(),
   RAILWAY_TOKEN: z.preprocess(blank, z.string().min(1).optional()),
+  // Resend, for email the app sends itself (verifying an application email); NOTIFY_FROM is who it's from.
+  RESEND_API_KEY: z.preprocess(blank, z.string().min(1).optional()),
+  NOTIFY_FROM: z.preprocess(blank, z.string().min(1).optional()),
 });
 
 // Workers (Railway) only need the service-role connection.

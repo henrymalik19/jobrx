@@ -255,6 +255,26 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"email_verifications": {
+                  Row: {
+                    "created_at": string,"email": string,"expires_at": string,"id": string,"token_hash": string,"used_at": string | null,"user_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"email": string,"expires_at": string,"id"?: string,"token_hash": string,"used_at"?: string | null,"user_id": string
+                  }
+                  Update: {
+                    "created_at"?: string,"email"?: string,"expires_at"?: string,"id"?: string,"token_hash"?: string,"used_at"?: string | null,"user_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "email_verifications_user_id_fkey"
+      columns: ["user_id"]
+isOneToOne: false
+      referencedRelation: "users"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"emails": {
                   Row: {
                     "application_id": string | null,"archived_at": string | null,"classification": string | null,"created_at": string,"from_addr": string | null,"id": string,"match_confidence": number | null,"message_id": string,"processed_at": string,"reason": string | null,"received_at": string,"snippet": string | null,"subject": string | null,"updated_at": string,"user_id": string
@@ -579,14 +599,14 @@ isOneToOne: false
                   ]
                 },"profiles": {
                   Row: {
-                    "city": string | null,"country": string,"created_at": string,"email": string | null,"first_name": string | null,"github_url": string | null,"headline": string | null,"last_name": string | null,"linkedin_url": string | null,"notice_period": string | null,"phone": string | null,"postal_code": string | null,"preferred_name": string | null,"security_clearance": string | null,"state": string | null,"summary": string | null,"updated_at": string,"user_id": string,"website_url": string | null
+                    "city": string | null,"country": string,"created_at": string,"email": string | null,"email_verified_at": string | null,"first_name": string | null,"github_url": string | null,"headline": string | null,"last_name": string | null,"linkedin_url": string | null,"notice_period": string | null,"phone": string | null,"postal_code": string | null,"preferred_name": string | null,"security_clearance": string | null,"state": string | null,"summary": string | null,"updated_at": string,"user_id": string,"website_url": string | null
                   }
                   ComputedFields: never
                   Insert: {
-                    "city"?: string | null,"country"?: string,"created_at"?: string,"email"?: string | null,"first_name"?: string | null,"github_url"?: string | null,"headline"?: string | null,"last_name"?: string | null,"linkedin_url"?: string | null,"notice_period"?: string | null,"phone"?: string | null,"postal_code"?: string | null,"preferred_name"?: string | null,"security_clearance"?: string | null,"state"?: string | null,"summary"?: string | null,"updated_at"?: string,"user_id"?: string,"website_url"?: string | null
+                    "city"?: string | null,"country"?: string,"created_at"?: string,"email"?: string | null,"email_verified_at"?: string | null,"first_name"?: string | null,"github_url"?: string | null,"headline"?: string | null,"last_name"?: string | null,"linkedin_url"?: string | null,"notice_period"?: string | null,"phone"?: string | null,"postal_code"?: string | null,"preferred_name"?: string | null,"security_clearance"?: string | null,"state"?: string | null,"summary"?: string | null,"updated_at"?: string,"user_id"?: string,"website_url"?: string | null
                   }
                   Update: {
-                    "city"?: string | null,"country"?: string,"created_at"?: string,"email"?: string | null,"first_name"?: string | null,"github_url"?: string | null,"headline"?: string | null,"last_name"?: string | null,"linkedin_url"?: string | null,"notice_period"?: string | null,"phone"?: string | null,"postal_code"?: string | null,"preferred_name"?: string | null,"security_clearance"?: string | null,"state"?: string | null,"summary"?: string | null,"updated_at"?: string,"user_id"?: string,"website_url"?: string | null
+                    "city"?: string | null,"country"?: string,"created_at"?: string,"email"?: string | null,"email_verified_at"?: string | null,"first_name"?: string | null,"github_url"?: string | null,"headline"?: string | null,"last_name"?: string | null,"linkedin_url"?: string | null,"notice_period"?: string | null,"phone"?: string | null,"postal_code"?: string | null,"preferred_name"?: string | null,"security_clearance"?: string | null,"state"?: string | null,"summary"?: string | null,"updated_at"?: string,"user_id"?: string,"website_url"?: string | null
                   }
                   Relationships: [
                     {
@@ -888,6 +908,9 @@ isOneToOne: false
                            },
 "is_owner":
 { Args: Record<PropertyKey, never>; Returns: boolean
+                           },
+"is_sign_in_email":
+{ Args: { "p_email": string,"p_user": string }; Returns: boolean
                            },
 "job_title_has_role":
 { Args: { "t": string }; Returns: boolean

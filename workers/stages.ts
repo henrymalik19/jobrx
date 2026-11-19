@@ -9,6 +9,7 @@ import { runNotify } from "@/server/modules/notifications/notifications.service"
 import { runPrepare } from "@/server/modules/prepare/prepare.service";
 import { runTrackEmail } from "@/server/modules/tracking/tracking.service";
 import { listUsers, type User } from "@/server/modules/users/users.service";
+import { JOBRX_FROM } from "@/server/integrations/email/app-mail";
 
 /** One stage: what it does for one user, and the variables it needs (any one of them). */
 type Stage = { name: string; needs?: string[]; run: (db: Db, userId: string, user: User) => Promise<{ counts: unknown }> };
@@ -52,7 +53,6 @@ export const trackEmail: Stage = {
 };
 
 /** Who the digest comes from through Resend (send.jobrx.ai is verified there). */
-const DIGEST_FROM = "Jobrx <no-reply@send.jobrx.ai>";
 
 /** Notify (the digest email). */
 export const notify: Stage = {
@@ -65,7 +65,7 @@ export const notify: Stage = {
   run: (db, userId) => {
     const key = process.env.RESEND_API_KEY;
     const createSender = key ? () => createResendSender(key) : undefined;
-    const from = key ? process.env.NOTIFY_FROM || DIGEST_FROM : undefined;
+    const from = key ? process.env.NOTIFY_FROM || JOBRX_FROM : undefined;
     return runNotify({ db, userId, password: process.env.JOB_INBOX_PASSWORD ?? "", createSender, from, log });
   },
 };
