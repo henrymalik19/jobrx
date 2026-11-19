@@ -450,8 +450,8 @@ async function ApplicationDetail({ params, searchParams }: { params: Params; sea
           />
         )}
       </div>
-      {/* Stays at the top while the questions scroll; the negative margins cover the page padding. */}
-      <header className="sticky -top-8 z-10 -mx-4 -mt-4 flex flex-wrap items-end justify-between gap-3 border-b bg-background px-4 pt-4 pb-3 md:-mx-8 md:px-8">
+      {/* On desktop it stays at the top while the questions scroll (the negative margins cover the page padding); on a phone it scrolls away, as it would take much of the screen. */}
+      <header className="z-10 md:sticky md:-top-8 -mx-4 -mt-4 flex flex-wrap items-end justify-between gap-3 border-b bg-background px-4 pt-4 pb-3 md:-mx-8 md:px-8">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <Badge className={TONE_BADGE[info.tone]}>{info.label}</Badge>

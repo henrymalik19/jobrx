@@ -105,5 +105,8 @@ test("on a phone: the lanes are a list to pick from, the page scrolls, and Decid
   await expect(decide).toBeVisible();
   // Above the questions, near the top.
   expect((await decide.boundingBox())!.y).toBeLessThan(844 * 1.5);
+  // Its title bar isn't pinned on a phone: it scrolls away with the page.
+  const position = await page.locator("header").filter({ has: page.getByRole("heading", { level: 1 }) }).evaluate((h) => getComputedStyle(h).position);
+  expect(position).toBe("static");
   if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/application-phone.png` });
 });
