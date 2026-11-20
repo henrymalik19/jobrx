@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self'" />
+  <title>Sign in to Jobrx</title>
+  <style>
+    :root { color-scheme: light dark; --bg: #fff; --fg: #111; --muted: #666; --border: #d4d4d8; --primary: #111; --on-primary: #fff; --error: #b91c1c; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #18181b; --fg: #fafafa; --muted: #a1a1aa; --border: #3f3f46; --primary: #fafafa; --on-primary: #111; --error: #f87171; } }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 28px; background: var(--bg); color: var(--fg); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    img { width: 44px; height: 44px; border-radius: 10px; }
+    h1 { font-size: 18px; margin: 12px 0 4px; }
+    p { margin: 0 0 18px; color: var(--muted); }
+    label { display: block; font-weight: 500; margin: 12px 0 4px; }
+    input { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: inherit; font: inherit; }
+    button { margin-top: 18px; width: 100%; padding: 9px; border: 0; border-radius: 8px; background: var(--primary); color: var(--on-primary); font: inherit; font-weight: 600; cursor: pointer; }
+    button:disabled { opacity: 0.6; cursor: default; }
+    #error { color: var(--error); margin-top: 10px; min-height: 1.4em; }
+  </style>
+</head>
+<body>
+  <img src="icon.png" alt="" />
+  <h1>Sign in to Jobrx</h1>
+  <p>The runner applies as you. Only the session is kept on this computer.</p>
+  <form id="form">
+    <label for="email">Email</label>
+    <input id="email" type="email" autocomplete="username" required autofocus />
+    <label for="password">Password</label>
+    <input id="password" type="password" autocomplete="current-password" required />
+    <button id="submit" type="submit">Sign in</button>
+    <div id="error" role="alert"></div>
+  </form>
+  <script>
+    const form = document.getElementById("form");
+    const button = document.getElementById("submit");
+    const error = document.getElementById("error");
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      button.disabled = true;
+      button.textContent = "Signing in…";
+      error.textContent = "";
+      const failed = await window.jobrx.signIn(document.getElementById("email").value, document.getElementById("password").value);
+      if (failed) {
+        error.textContent = failed;
+        button.disabled = false;
+        button.textContent = "Sign in";
+      }
+    });
+  </script>
+</body>
+</html>

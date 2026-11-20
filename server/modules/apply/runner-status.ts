@@ -7,6 +7,8 @@ import { getUserSetting, putUserSetting } from "@/server/modules/settings/settin
 
 /** The user setting that holds it. */
 export const RUNNER_STATUS_KEY = "apply_runner";
+/** Where the desktop app (the runner in your menu bar) is downloaded, for Mac and Windows. */
+export const DESKTOP_DOWNLOAD_URL = "https://github.com/henrymalik19/jobrx/releases/latest";
 /** The runner reports every minute while running: one not seen for longer than this isn't running. */
 export const RUNNER_OFFLINE_MS = 3 * 60_000;
 

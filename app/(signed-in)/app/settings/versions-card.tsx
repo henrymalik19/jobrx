@@ -56,7 +56,8 @@ export async function VersionsCard() {
       <CardHeader>
         <CardTitle>Versions</CardTitle>
         <CardDescription>
-          The code the app and the apply runner each run. A push to main deploys the app in a few minutes. The runner checks
+          The code the app and the apply runner each run. A push to main deploys the app in a few minutes. The runner in the
+          Jobrx app runs the code it was built from and tells you when a newer version is out. One run from the repo checks
           GitHub every 10 minutes and, once nothing is open, pulls the new code and restarts itself; one started some other way
           than <code className="rounded bg-muted px-1">pnpm worker:apply</code> needs a restart.
         </CardDescription>

@@ -39,9 +39,16 @@ import { saveApplyRun, type RunFile } from "@/server/modules/apply/apply-runs";
 import { parseApplyEnv } from "@/shared/env";
 import { shortSha } from "@/shared/version";
 import { reportRunnerStatus, type RunnerStatus } from "@/server/modules/apply/runner-status";
-import { CONTROL_POLL_MS, getRunnerControl, newFills, newFormActions, reportLeftFields, restartAsked, runnerControlSchema, type FormAction, type LeftField, type RunnerControl } from "@/server/modules/apply/runner-control";
+import { CONTROL_POLL_MS, getRunnerControl, setRunnerPaused, newFills, newFormActions, reportLeftFields, restartAsked, runnerControlSchema, type FormAction, type LeftField, type RunnerControl } from "@/server/modules/apply/runner-control";
 import { checkForUpdate, pullUpdate, RESTART_EXIT } from "./apply-update";
+import { desktopPort, SIGNED_OUT_EXIT, type RunnerMessage, type WaitingForm } from "./runner-messages";
 import { execFileSync } from "node:child_process";
+
+/** Started by the desktop app (desktop/), which signs you in, restarts it and updates it: no git, no terminal. */
+const DESKTOP = process.env.JOBRX_DESKTOP === "1";
+/** The channel to the desktop app, when it started this runner. */
+const port = DESKTOP ? desktopPort() : null;
+const tell = (message: RunnerMessage) => port?.postMessage(message);
 
 /** Git's answer in this folder, or "" when there's no git (or no repository). */
 const git = (...args: string[]) => {
@@ -52,7 +59,8 @@ const git = (...args: string[]) => {
   }
 };
 
-const DATA = path.resolve("data");
+// The desktop app keeps it in its own folder (Application Support on a Mac, AppData on Windows).
+const DATA = process.env.JOBRX_DATA_DIR ? path.resolve(process.env.JOBRX_DATA_DIR) : path.resolve("data");
 const SESSION_FILE = path.join(DATA, "apply-session.json");
 const POLL_MS = 20_000;
 /** How often it asks GitHub for newer code (self-update). */
@@ -68,7 +76,11 @@ const LINKEDIN_PER_ROLE = 15;
 /** How long a submitted tab stays open, so the thank-you page can be seen. */
 const SUBMITTED_TAB_MS = 10_000;
 
-const log = (line: string) => console.log(`[${new Date().toLocaleTimeString()}] ${line}`);
+const log = (line: string) => {
+  const stamped = `[${new Date().toLocaleTimeString()}] ${line}`;
+  if (port) tell({ type: "log", line: stamped });
+  else console.log(stamped);
+};
 
 /** Supabase auth storage backed by one JSON file, so the session survives restarts. */
 function fileStorage() {
@@ -109,8 +121,14 @@ async function askLogin(): Promise<{ email: string; password: string }> {
 
 /** Signs in with the saved session, or asks for email and password once. */
 async function signIn(db: Db): Promise<string> {
-  const { data } = await db.auth.getUser();
+  const { data, error } = await db.auth.getUser();
   if (data.user) return data.user.id;
+  if (DESKTOP) {
+    // Offline (no answer at all) isn't signed out: the desktop app starts it again in a while.
+    if (error && !error.status) throw new Error(`couldn't reach Jobrx to sign in: ${error.message}`);
+    // The desktop app has its own sign-in window: it asks you, then starts the runner again.
+    process.exit(SIGNED_OUT_EXIT);
+  }
   console.log("Sign in to Jobrx (asked once; only the session is saved).");
   const { email, password } = await askLogin();
   const res = await db.auth.signInWithPassword({ email, password });
@@ -244,16 +262,18 @@ async function main() {
 
   // What it reports about itself (Settings shows it): the code it loaded at start, which it keeps running.
   const startedAt = new Date().toISOString();
+  // The desktop app says which code it was built from; a folder says it with git.
   const status: RunnerStatus = {
-    version: git("rev-parse", "HEAD"),
-    message: git("log", "-1", "--format=%s").slice(0, 200),
-    localChanges: git("status", "--porcelain", "--untracked-files=no") !== "",
+    version: DESKTOP ? (process.env.JOBRX_VERSION ?? "") : git("rev-parse", "HEAD"),
+    message: (DESKTOP ? (process.env.JOBRX_VERSION_MESSAGE ?? "") : git("log", "-1", "--format=%s")).slice(0, 200),
+    localChanges: !DESKTOP && git("status", "--porcelain", "--untracked-files=no") !== "",
     startedAt,
     seenAt: startedAt,
     behind: false,
     stoppedAt: null,
-    // Only under pnpm worker:apply (its launcher starts it again after an update), unless turned off.
-    autoUpdate: process.env.APPLY_SUPERVISED === "1" && env.APPLY_SELF_UPDATE === "1",
+    // Under pnpm worker:apply (its launcher starts it again after an update) unless turned off, or the desktop
+    // app (which starts it again after a restart; its own updates come with the app).
+    autoUpdate: DESKTOP || (process.env.APPLY_SUPERVISED === "1" && env.APPLY_SELF_UPDATE === "1"),
     updateBlocked: null,
   };
   let lastReport = 0;
@@ -261,7 +281,7 @@ async function main() {
   const heartbeat = async () => {
     if (Date.now() - lastReport < 60_000) return;
     lastReport = Date.now();
-    const now = git("rev-parse", "HEAD");
+    const now = DESKTOP ? "" : git("rev-parse", "HEAD");
     if (!status.behind && status.version && now && now !== status.version) {
       status.behind = true;
       log(status.autoUpdate
@@ -279,7 +299,8 @@ async function main() {
   let lastUpdateCheck = 0;
   /** Every 10 minutes: asks GitHub for newer code (see checkForUpdate); logs a reason it won't pull once. */
   const checkUpdate = async () => {
-    if (!status.autoUpdate || Date.now() - lastUpdateCheck < UPDATE_CHECK_MS) return;
+    // The desktop app checks for its own updates.
+    if (DESKTOP || !status.autoUpdate || Date.now() - lastUpdateCheck < UPDATE_CHECK_MS) return;
     lastUpdateCheck = Date.now();
     const step = await checkForUpdate(status.version).catch((err) => {
       log(`update: couldn't check: ${(err as Error).message.split("\n")[0]}`);
@@ -376,6 +397,7 @@ async function main() {
     const next = signIn
       ? "Sign in with your LinkedIn email and password in the runner's Chrome window (Google sign-in doesn't work there); LinkedIn work goes on once you have."
       : "Sort it out in the runner's Chrome window, then restart the runner.";
+    tell({ type: "notice", title: "LinkedIn paused", body: why });
     await notify(db, userId, { kind: "runner_stuck", title: "LinkedIn paused", body: `${why} ${next}`, href: "/app/applications" }).catch(() => undefined);
   };
   /** Whether you've signed in on the sign-in tab: LinkedIn work goes on (searching right away). */
@@ -555,6 +577,29 @@ async function main() {
     else if (!leftByForm.delete(applicationId)) return;
     await saveLeft();
   };
+  // The desktop app: what's open (for its menu), and its menu's Pause, a waiting form brought to the front, and Quit.
+  const forms = new Map<string, WaitingForm>();
+  const tellState = () =>
+    tell({
+      type: "state",
+      name,
+      filling: open.size - waiting.size,
+      waiting: [...waiting.keys()].flatMap((id) => forms.get(id) ?? []),
+      paused: control.paused,
+      linkedinPaused: control.linkedin_paused || !!linkedinPaused,
+      updating: !!update,
+    });
+  port?.on("message", ({ data }) => {
+    if (data.type === "stop") void stop();
+    else if (data.type === "focus") void waiting.get(data.id)?.bringToFront().catch(() => undefined);
+    else if (data.type === "pause") {
+      void setRunnerPaused(db, userId, data.paused).then((next) => {
+        control = next;
+        log(next.paused ? "paused: no new applications start (what's open stays open)" : "resumed");
+        tellState();
+      }, (err) => log(`couldn't pause: ${(err as Error).message}`));
+    }
+  });
   /** The tab of a waiting form you're looking at, if any. */
   const frontTab = async (): Promise<Page | null> => {
     for (const p of waiting.values()) {
@@ -590,6 +635,10 @@ async function main() {
       const recorded = { ...record.driver, focus: async () => (others() ? undefined : record.driver.focus()) };
       const filled = () => {
         waiting.set(app.id, tab);
+        const form = { id: app.id, title: app.job.title, company: app.job.company_name };
+        forms.set(app.id, form);
+        tell({ type: "waiting", form });
+        tellState();
         endTurn();
       };
       let outcome = "error";
@@ -628,6 +677,8 @@ async function main() {
       if (liveTabs.delete(app.id)) await removeLiveShot(db, userId, app.id);
       open.delete(app.id);
       openSources.delete(app.id);
+      forms.delete(app.id);
+      tellState();
       endTurn();
     }
   };
@@ -669,6 +720,7 @@ async function main() {
       }
       if (ready.length === 0 && open.size === 0 && !searching) await closeIfIdle();
       await heartbeat();
+      tellState();
       await checkUpdate();
       await updateIfIdle();
     } catch (err) {

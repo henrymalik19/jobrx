@@ -157,8 +157,8 @@ function NextStep({ app, blockers, flags, skip, limit }: {
       <p>{app.apply_note}</p>
     ) : (
       <p>
-        The apply runner on your computer fills the form in Chrome and waits for you to click Submit. Start it with{" "}
-        <code className="rounded bg-muted px-1">pnpm worker:apply</code>; it picks this up within 20 seconds.
+        The apply runner on your computer fills the form in Chrome and waits for you to click Submit. Open the Jobrx app (or
+        run <code className="rounded bg-muted px-1">pnpm worker:apply</code>); it picks this up within 20 seconds.
         {app.apply_note && <span className="mt-1 block text-muted-foreground">{app.apply_note}</span>}
       </p>
     );

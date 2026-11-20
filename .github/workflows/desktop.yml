@@ -1,0 +1,49 @@
+name: Desktop app
+
+# A tag desktop-v1.2.3 builds the desktop app (desktop/) at that version for Mac and Windows and publishes it as a
+# GitHub release, which the installed apps find within 6 hours (or from Check for updates):
+#   git tag desktop-v0.1.0 && git push origin desktop-v0.1.0
+on:
+  push:
+    tags: ["desktop-v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      VERSION: ${{ github.ref_name }}
+      # Not signed by Apple yet: the Mac build is ad-hoc signed (electron-builder.yml).
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      # The repo's packages, which the app and the runner are bundled from.
+      - run: pnpm install --frozen-lockfile
+      - working-directory: desktop
+        run: |
+          npm ci
+          npm pkg set version="${VERSION#desktop-v}"
+          npm run dist
+      - name: Publish
+        working-directory: desktop
+        run: |
+          # Both builds publish to one release: whichever finishes first creates it.
+          gh release view "$VERSION" >/dev/null 2>&1 || gh release create "$VERSION" --title "Jobrx ${VERSION#desktop-v}" --notes "The Jobrx desktop app (apply runner) at ${GITHUB_SHA::7}." || true
+          shopt -s nullglob
+          files=(release/*.dmg release/*.exe)
+          gh release upload "$VERSION" "${files[@]}" --clobber

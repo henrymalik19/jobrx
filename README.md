@@ -83,6 +83,28 @@ on `/admin/health`; a board that fails twice in a row is retried at most every 2
 
 ### Apply runner (your computer only)
 
+**The desktop app** (`desktop/`) is the easy way: the runner in your menu bar (the tray on Windows), for Mac and
+Windows, from [GitHub Releases](https://github.com/henrymalik19/jobrx/releases/latest). It has its own sign-in
+window, opens at login, tells you when a form is ready to submit (click to bring its tab to the front), and has
+Pause, LinkedIn on or off, the log, and Sign out in its menu. It finds the database through `/api/runner/config`,
+so it needs no settings file. Its data (session, Chrome profile, run records) lives in the app's own folder:
+`~/Library/Application Support/Jobrx/runner` on a Mac, `%APPDATA%\Jobrx\runner` on Windows.
+
+- **Releasing:** tag it, and the Desktop app workflow builds both and publishes the release.
+  Installed apps see it within 6 hours, or at once from Check for updates.
+  ```bash
+  git tag desktop-v0.1.1 && git push origin desktop-v0.1.1
+  ```
+- **Updating:** choose Install update in the menu. On Windows the installer replaces the app. On a Mac the disk
+  image opens; drag Jobrx into Applications (Replace).
+- **Not signed by Apple yet:** the first time on a Mac, open it, then allow it under System Settings > Privacy &
+  Security > Open Anyway. Updates downloaded by the app open without that. Windows shows SmartScreen once
+  (More info > Run anyway).
+- **Trying it from the repo:** `cd desktop && npm install && npm start`. `JOBRX_USER_DATA=<folder>` keeps it apart
+  from the installed app, and `JOBRX_APP_URL` points it at another web app.
+
+**From the repo:**
+
 ```bash
 pnpm worker:apply             # fills approved Greenhouse applications in Chrome; Ctrl+C to stop
 ```

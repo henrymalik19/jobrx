@@ -21,6 +21,7 @@ import { getUserSetting } from "@/server/modules/settings/settings.service";
 import { listPushDevices, vapidKeys } from "@/server/modules/notifications/push";
 import { cardsOnPhone } from "@/app/(signed-in)/_components/data-table";
 import { cn } from "@/shared/cn";
+import { DESKTOP_DOWNLOAD_URL } from "@/server/modules/apply/runner-status";
 
 async function PhoneAlertsSetting() {
   const { db, owner } = await ownerContext();
@@ -133,7 +134,9 @@ async function ApplyRunnerSetting() {
       <CardHeader>
         <CardTitle>Apply runner</CardTitle>
         <CardDescription>
-          Runs on your computer (<code className="rounded bg-muted px-1">pnpm worker:apply</code>) and fills approved
+          Runs on your computer in the Jobrx app (
+          <a href={DESKTOP_DOWNLOAD_URL} target="_blank" rel="noreferrer" className="underline underline-offset-2">download it for Mac or Windows</a>, or
+          run <code className="rounded bg-muted px-1">pnpm worker:apply</code> from the repo) and fills approved
           applications in Chrome, one job site at a time. Supervised: it fills and you click Submit. After {required} submits in
           a row where you changed nothing, you can let it submit itself. A change or a failure puts it back on supervised.
         </CardDescription>

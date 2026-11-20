@@ -1,0 +1,32 @@
+# Packages the desktop app (npm run dist): a disk image per Mac chip and a Windows installer, in release/.
+# Not signed by Apple yet: the Mac build is ad-hoc signed (so it runs on Apple silicon), and the first open needs
+# Open Anyway (System Settings > Privacy & Security). Updates are downloaded by the app, so they open without it.
+appId: ai.jobrx.desktop
+productName: Jobrx
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**
+  - package.json
+# Playwright starts Chrome from files of its own, which have to be real files, not inside the app's archive.
+asarUnpack:
+  - node_modules/playwright-core/**
+mac:
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+  identity: "-"
+  category: public.app-category.productivity
+  extendInfo:
+    # A menu bar app: no Dock icon (its windows show one while they're open).
+    LSUIElement: true
+dmg:
+  artifactName: ${productName}-${version}-${arch}.${ext}
+win:
+  target: nsis
+nsis:
+  artifactName: ${productName}-Setup-${version}.${ext}
+  oneClick: true
+  perMachine: false
+publish: null

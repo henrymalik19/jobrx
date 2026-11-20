@@ -38,7 +38,7 @@ function cardNote(app: ApplicationWithDetails, now: Date, loose: UnmatchedEmail[
     }
     if (app.apply_step === "waiting_for_you") return { text: APPLY_STEP_TITLE.waiting_for_you, tone: "warning" };
     if (app.apply_step) return { text: APPLY_STEP_TITLE[app.apply_step] ?? app.apply_step, tone: "info" };
-    return { text: "Waiting for the runner", detail: "The apply runner on your computer picks it up within 20 seconds while it's running (pnpm worker:apply).", tone: "muted" };
+    return { text: "Waiting for the runner", detail: "The apply runner on your computer picks it up within 20 seconds while it's running (the Jobrx app, or pnpm worker:apply).", tone: "muted" };
   }
   // Email tracking confirms an application when the employer's receipt arrives; a day without one is worth a look.
   if (app.status === "submitted" && app.submitted_at && now.getTime() - new Date(app.submitted_at).getTime() > 86_400_000) {
@@ -128,7 +128,7 @@ export default function ApplyingPage() {
       <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
         Applying
         <InfoTip label="About the board">
-          Approved applications on Greenhouse wait for the apply runner on your computer (<code>pnpm worker:apply</code>), which
+          Approved applications on Greenhouse wait for the apply runner on your computer (the Jobrx app, or <code>pnpm worker:apply</code>), which
           fills them one at a time. Anything it can&apos;t finish goes to Runner stuck with the reason; move it back to Approved to
           try again. Drag a card, or use its Move menu, when you apply yourself, hear back, get an interview, an offer or a no.
         </InfoTip>
